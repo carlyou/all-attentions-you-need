@@ -1,0 +1,66 @@
+baseURL: https://carlyou.github.io/all-attentions-you-need/
+languageCode: en-us
+title: All Attentions You Need
+theme: sans
+
+taxonomies:
+  tag: tags
+
+params:
+  author: Carl Y
+  description: "A deep dive into every attention mechanism — from math to metal."
+
+  homepage:
+    onlyPostsInHomePage: true
+    dateFormat: "Jan 2, 2006"
+
+  theme:
+    showDarkModeToggle: true
+    showSearchIcon: false
+    showGoToTop: true
+
+  posts:
+    readingSpeed: 212
+    showFrontMatter: true
+    showDate: true
+    showReadingTime: true
+    showWordCount: false
+    showAuthors: false
+    showTags: true
+    showCategories: false
+    dateFormat: "Jan 2, 2006"
+
+  toc:
+    numberingInTOC: false
+    numberingInPost: false
+
+menu:
+  main:
+    - name: Home
+      pageRef: /
+      weight: 10
+
+markup:
+  goldmark:
+    extensions:
+      passthrough:
+        delimiters:
+          block:
+            - - \[
+              - \]
+            - - $$
+              - $$
+          inline:
+            - - \(
+              - \)
+            - - $
+              - $
+        enable: true
+    renderer:
+      unsafe: true
+  highlight:
+    style: monokai
+    codeFences: true
+  tableOfContents:
+    endLevel: 5
+    startLevel: 2

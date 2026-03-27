@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 520" font-family="'Inter', 'Helvetica Neue', sans-serif" font-size="13">
+  <defs>
+    <marker id="arrow" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5" fill="#555" />
+    </marker>
+  </defs>
+
+  <!-- ==================== LEFT PANEL: Scaled Dot-Product Attention ==================== -->
+  <g transform="translate(0, 0)">
+    <rect x="20" y="20" width="290" height="480" rx="6" fill="none" stroke="#ddd" stroke-width="1" stroke-dasharray="4,3" />
+    <text x="165" y="46" text-anchor="middle" font-weight="600" fill="#333" font-size="13">Scaled Dot-Product Attention</text>
+
+    <!-- V, K, Q inputs at bottom -->
+    <text x="75" y="478" text-anchor="middle" fill="#555" font-weight="500">V</text>
+    <text x="165" y="478" text-anchor="middle" fill="#555" font-weight="500">K</text>
+    <text x="255" y="478" text-anchor="middle" fill="#555" font-weight="500">Q</text>
+
+    <!-- V arrow: straight up the left side to top MatMul -->
+    <line x1="75" y1="465" x2="75" y2="152" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- K arrow up into bottom MatMul -->
+    <line x1="165" y1="465" x2="165" y2="420" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Q arrow up into bottom MatMul -->
+    <line x1="255" y1="465" x2="255" y2="420" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- MatMul (Q·Kᵀ) -->
+    <rect x="120" y="390" width="180" height="30" rx="4" fill="#fce8e6" stroke="#ea4335" stroke-width="1" />
+    <text x="210" y="410" text-anchor="middle" fill="#c5221f" font-size="11" font-weight="500">MatMul (Q · Kᵀ)</text>
+
+    <!-- Arrow up from bottom MatMul to Scale -->
+    <line x1="210" y1="390" x2="210" y2="360" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Scale -->
+    <rect x="150" y="330" width="120" height="30" rx="4" fill="#e8f0fe" stroke="#4285f4" stroke-width="1" />
+    <text x="210" y="350" text-anchor="middle" fill="#1a73e8" font-size="11" font-weight="500">Scale (1/√dₖ)</text>
+
+    <!-- Arrow up from Scale to Mask -->
+    <line x1="210" y1="330" x2="210" y2="300" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Mask (optional) -->
+    <rect x="150" y="270" width="120" height="30" rx="4" fill="#f1f3f4" stroke="#999" stroke-width="1" />
+    <text x="210" y="290" text-anchor="middle" fill="#666" font-size="11" font-weight="500">Mask (opt.)</text>
+
+    <!-- Arrow up from Mask to Softmax -->
+    <line x1="210" y1="270" x2="210" y2="240" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Softmax -->
+    <rect x="150" y="210" width="120" height="30" rx="4" fill="#fef7e0" stroke="#f9ab00" stroke-width="1" />
+    <text x="210" y="230" text-anchor="middle" fill="#e37400" font-size="11" font-weight="500">Softmax</text>
+
+    <!-- Arrow up from Softmax to top MatMul -->
+    <line x1="210" y1="210" x2="210" y2="152" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- MatMul (attn · V) -->
+    <rect x="75" y="122" width="180" height="30" rx="4" fill="#fce8e6" stroke="#ea4335" stroke-width="1" />
+    <text x="165" y="142" text-anchor="middle" fill="#c5221f" font-size="11" font-weight="500">MatMul (Attn · V)</text>
+
+    <!-- Output arrow -->
+    <line x1="165" y1="122" x2="165" y2="80" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Output label -->
+    <text x="165" y="72" text-anchor="middle" fill="#333" font-weight="500" font-size="11">Output</text>
+  </g>
+
+  <!-- ==================== RIGHT PANEL: Multi-Head Attention ==================== -->
+  <g transform="translate(360, 0)">
+    <rect x="0" y="20" width="300" height="480" rx="6" fill="none" stroke="#ddd" stroke-width="1" stroke-dasharray="4,3" />
+    <text x="150" y="46" text-anchor="middle" font-weight="600" fill="#333" font-size="13">Multi-Head Attention</text>
+
+    <!-- V, K, Q inputs at bottom -->
+    <text x="62" y="478" text-anchor="middle" fill="#555" font-weight="500">V</text>
+    <text x="150" y="478" text-anchor="middle" fill="#555" font-weight="500">K</text>
+    <text x="238" y="478" text-anchor="middle" fill="#555" font-weight="500">Q</text>
+
+    <!-- Arrows up from inputs to Linear -->
+    <line x1="62" y1="465" x2="62" y2="430" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+    <line x1="150" y1="465" x2="150" y2="430" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+    <line x1="238" y1="465" x2="238" y2="430" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Linear projections -->
+    <rect x="22" y="400" width="80" height="30" rx="4" fill="#e8f0fe" stroke="#4285f4" stroke-width="1" />
+    <text x="62" y="420" text-anchor="middle" fill="#1a73e8" font-size="11" font-weight="500">Linear</text>
+    <rect x="110" y="400" width="80" height="30" rx="4" fill="#e8f0fe" stroke="#4285f4" stroke-width="1" />
+    <text x="150" y="420" text-anchor="middle" fill="#1a73e8" font-size="11" font-weight="500">Linear</text>
+    <rect x="198" y="400" width="80" height="30" rx="4" fill="#e8f0fe" stroke="#4285f4" stroke-width="1" />
+    <text x="238" y="420" text-anchor="middle" fill="#1a73e8" font-size="11" font-weight="500">Linear</text>
+
+    <!-- Arrows from Linear down to heads -->
+    <line x1="62" y1="400" x2="62" y2="350" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+    <line x1="150" y1="400" x2="150" y2="350" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+    <line x1="238" y1="400" x2="238" y2="350" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Attention heads -->
+    <rect x="18" y="285" width="76" height="65" rx="4" fill="#fef7e0" stroke="#f9ab00" stroke-width="1" />
+    <text x="56" y="312" text-anchor="middle" fill="#e37400" font-size="10" font-weight="500">Scaled</text>
+    <text x="56" y="326" text-anchor="middle" fill="#e37400" font-size="10" font-weight="500">Dot-Product</text>
+    <text x="56" y="342" text-anchor="middle" fill="#e37400" font-size="8">h=1</text>
+
+    <rect x="112" y="285" width="76" height="65" rx="4" fill="#fef7e0" stroke="#f9ab00" stroke-width="1" />
+    <text x="150" y="312" text-anchor="middle" fill="#e37400" font-size="10" font-weight="500">Scaled</text>
+    <text x="150" y="326" text-anchor="middle" fill="#e37400" font-size="10" font-weight="500">Dot-Product</text>
+    <text x="150" y="342" text-anchor="middle" fill="#e37400" font-size="8">h=2</text>
+
+    <rect x="206" y="285" width="76" height="65" rx="4" fill="#fef7e0" stroke="#f9ab00" stroke-width="1" />
+    <text x="244" y="312" text-anchor="middle" fill="#e37400" font-size="10" font-weight="500">Scaled</text>
+    <text x="244" y="326" text-anchor="middle" fill="#e37400" font-size="10" font-weight="500">Dot-Product</text>
+    <text x="244" y="342" text-anchor="middle" fill="#e37400" font-size="8">h=H</text>
+
+    <!-- Arrows from heads up to Concat -->
+    <line x1="56" y1="285" x2="56" y2="260" stroke="#555" stroke-width="1" />
+    <line x1="56" y1="260" x2="110" y2="240" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+    <line x1="150" y1="285" x2="150" y2="240" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+    <line x1="244" y1="285" x2="244" y2="260" stroke="#555" stroke-width="1" />
+    <line x1="244" y1="260" x2="190" y2="240" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Concat -->
+    <rect x="90" y="210" width="120" height="30" rx="4" fill="#34a853" />
+    <text x="150" y="230" text-anchor="middle" fill="#fff" font-weight="500" font-size="11">Concat</text>
+
+    <!-- Arrow up from Concat to Linear -->
+    <line x1="150" y1="210" x2="150" y2="180" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Final Linear (W^O) -->
+    <rect x="90" y="150" width="120" height="30" rx="4" fill="#e8f0fe" stroke="#4285f4" stroke-width="1" />
+    <text x="150" y="170" text-anchor="middle" fill="#1a73e8" font-size="11" font-weight="500">Linear (Wᴼ)</text>
+
+    <!-- Output arrow -->
+    <line x1="150" y1="150" x2="150" y2="80" stroke="#555" stroke-width="1" marker-end="url(#arrow)" />
+
+    <!-- Output label -->
+    <text x="150" y="72" text-anchor="middle" fill="#333" font-weight="500" font-size="11">Output</text>
+  </g>
+</svg>
