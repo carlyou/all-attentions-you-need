@@ -27,7 +27,7 @@ jobs:
           hugo-version: latest
           extended: true
 
-      - run: hugo --minify
+      - run: hugo --minify --buildDrafts
 
       - uses: actions/upload-pages-artifact@v3
         with:
