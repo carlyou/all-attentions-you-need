@@ -1,6 +1,6 @@
 # All Attentions You Need
 
-A blog series exploring attention mechanisms in modern AI.
+A blog series covering attention mechanisms in modern AI — from math to metal.
 
 Read the series at: https://carlyou.github.io/all-attentions-you-need/
 
@@ -27,8 +27,12 @@ Site will be available at `http://localhost:1313/all-attentions-you-need/`.
 hugo new posts/02-mqa-gqa.md
 ```
 
-Uses the archetype template with the standard section structure:
-TL;DR → Motivation → Mechanism → Training → Inference → Trade-offs → Adoption → References
+Uses the archetype template. Every post has these fixed sections:
+TL;DR → Motivation → ... → Trade-offs → References
+
+The middle sections depend on the topic:
+- **Mechanism posts** (attention variants, MoE): Mechanism → Training → Inference
+- **Systems posts** (FlashAttention, parallelism, serving): Design → Implementation
 
 ### Tech Stack
 
