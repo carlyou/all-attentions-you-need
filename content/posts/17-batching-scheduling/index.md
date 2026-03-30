@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["serving", "batching", "scheduling", "chunked-prefill", "ragged", "continuous-batching"]
 description: "Continuous batching, mixed prefill-decode, chunked prefill, ragged batching, and the CPU-GPU scheduling loop."
-weight: 17
+weight: 1072
 ---
 
 ## TL;DR

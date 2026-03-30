@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["flash-attention", "tiling", "online-softmax", "lse"]
 description: "IO-aware exact attention: tiling, online softmax, the log-sum-exp trick, why swapping the loop order matters, and causal masking skip."
-weight: 9
+weight: 1041
 ---
 
 ## TL;DR

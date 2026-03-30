@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["parallelism", "tensor-parallel", "pipeline-parallel", "all-reduce", "tp", "pp"]
 description: "Splitting heads and weight matrices across GPUs — column/row parallel linear layers, all-reduce patterns, and pipeline stages."
-weight: 11
+weight: 1051
 ---
 
 ## TL;DR

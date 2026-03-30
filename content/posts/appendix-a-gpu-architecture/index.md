@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["gpu", "cuda", "sm", "hbm", "sram", "tensor-cores", "tma", "nccl"]
 description: "The GPU hardware that attention runs on — compute hierarchy (threads to SMs), memory hierarchy (registers to HBM), data movement (TMA, NCCL), and what each GPU generation added."
-weight: 20
+weight: 1091
 ---
 
 ## TL;DR

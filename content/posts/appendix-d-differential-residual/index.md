@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["attention", "differential", "residual", "noise-cancellation"]
 description: "Noise cancellation via dual softmax maps, and explicit residual connections in attention."
-weight: 23
+weight: 1094
 ---
 
 ## TL;DR

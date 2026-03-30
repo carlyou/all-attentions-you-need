@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["attention", "mqa", "gqa", "kv-cache"]
 description: "Sharing KV heads across query heads — a simple architectural change that dramatically shrinks the KV cache, with GQA as the sweet spot most frontier models have adopted."
-weight: 3
+weight: 1021
 ---
 
 ## TL;DR

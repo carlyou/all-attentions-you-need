@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["serving", "paged-attention", "kv-cache", "block-table", "scheduler"]
 description: "Virtual memory for KV cache: block allocation, block tables, the scheduler as sole owner of GPU memory."
-weight: 16
+weight: 1071
 ---
 
 ## TL;DR

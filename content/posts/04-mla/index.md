@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["attention", "mla", "deepseek", "kv-cache", "low-rank"]
 description: "DeepSeek's MLA compresses all KV heads into a single low-rank latent vector — achieving near-MQA cache size with near-MHA quality, at the cost of fundamentally different prefill and decode code paths."
-weight: 4
+weight: 1022
 ---
 
 ## TL;DR

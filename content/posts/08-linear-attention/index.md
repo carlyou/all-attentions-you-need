@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["attention", "linear", "gdn", "deltanet", "ssm", "subquadratic"]
 description: "Replacing softmax attention with linear maps and gated delta rules — achieving O(s) complexity by reformulating attention as a recurrence, at the cost of losing the exact token-to-token attention distribution."
-weight: 8
+weight: 1033
 ---
 
 ## TL;DR

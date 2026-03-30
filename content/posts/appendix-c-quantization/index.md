@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["quantization", "fp8", "fp4", "nvfp4", "scale", "fusion"]
 description: "FP8, FP4, scale granularity, and fusing quantization into attention kernels."
-weight: 22
+weight: 1093
 ---
 
 ## TL;DR

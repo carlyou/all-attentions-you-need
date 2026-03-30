@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["transformer", "ffn", "layernorm", "residual", "positional-encoding"]
 description: "Beyond attention — the feed-forward network, residual connections, layer normalization, and positional encoding that complete the Transformer block."
-weight: 2
+weight: 1012
 ---
 
 ## TL;DR

@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["attention", "sparse", "deepseek", "nsa", "dsa", "indexer", "top-k"]
 description: "From fixed patterns to learned token selection — DeepSeek's Native Sparse Attention uses a lightweight indexer to dynamically pick the top-k most relevant tokens per query, making decode cost sublinear in sequence length."
-weight: 7
+weight: 1032
 ---
 
 ## TL;DR

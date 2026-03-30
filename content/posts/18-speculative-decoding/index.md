@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["serving", "speculative-decoding", "draft-model", "medusa", "eagle"]
 description: "Draft-then-verify for multi-token generation, rejection sampling, and variants: Medusa, EAGLE, layer-skipping, n-gram."
-weight: 18
+weight: 1073
 ---
 
 ## TL;DR

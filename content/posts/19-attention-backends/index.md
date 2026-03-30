@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["serving", "backends", "flashattention", "flashinfer", "flashmla", "cutlass", "triton"]
 description: "FlashAttention, FlashInfer, FlashMLA, CUTLASS, Triton, cuDNN — how vLLM selects and dispatches to the right kernel."
-weight: 19
+weight: 1074
 ---
 
 ## TL;DR

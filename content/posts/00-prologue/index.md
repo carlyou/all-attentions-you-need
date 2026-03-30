@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["attention", "overview"]
 description: "A map of the attention mechanism landscape — what this series covers, how the posts connect, and how to read them based on what you care about."
-weight: 0
+weight: 1001
 ---
 
 ## Why This Series?

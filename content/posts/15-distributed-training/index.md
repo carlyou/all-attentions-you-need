@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["training", "zero", "fsdp", "distributed", "sharding"]
 description: "ZeRO stages 1/2/3, FSDP as PyTorch-native ZeRO-3, and how attention layers are sharded during training."
-weight: 15
+weight: 1062
 ---
 
 ## TL;DR

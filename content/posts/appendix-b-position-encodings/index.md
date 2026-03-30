@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["position-encoding", "rope", "alibi", "nope"]
 description: "How models encode token position — sinusoidal, learned, RoPE, ALiBi, and NoPE — entangled with every attention variant."
-weight: 21
+weight: 1092
 ---
 
 ## TL;DR

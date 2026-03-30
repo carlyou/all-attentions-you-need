@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["parallelism", "moe", "expert-parallel", "all-to-all", "ep"]
 description: "Distributing MoE experts across GPUs — all-to-all communication, load balancing, and combining EP with TP."
-weight: 12
+weight: 1052
 ---
 
 ## TL;DR

@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["attention", "sliding-window", "local", "longformer", "bigbird", "mistral"]
 description: "Limiting attention to a fixed local window — a simple constraint that caps KV cache at O(w) instead of O(s), trading long-range attention for bounded memory and compute."
-weight: 6
+weight: 1031
 ---
 
 ## TL;DR

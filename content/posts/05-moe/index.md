@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["moe", "deepseek", "sparse", "ffn", "routing"]
 description: "Mixture of Experts replaces the dense FFN with many specialized expert networks, routing each token to only a few — dramatically increasing model capacity without proportional compute cost."
-weight: 5
+weight: 1023
 ---
 
 ## TL;DR

@@ -6,7 +6,7 @@ math: true
 toc: true
 tags: ["flash-attention", "hopper", "blackwell", "tma", "wgmma", "ping-pong"]
 description: "Hopper: TMA async loads, WGMMA, two-stage pipelining. Blackwell: ping-pong scheduling, TMEM, software exponential emulation, lazy rescaling."
-weight: 10
+weight: 1042
 ---
 
 ## TL;DR
