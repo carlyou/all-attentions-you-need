@@ -29,6 +29,75 @@ make, or which ones actually matter in practice.
 This series puts them all in one place. Each post covers one topic with
 the same structure, so you can compare them directly.
 
+## The Roadmap
+
+### Part 1: Attention Is All You Need
+
+- [**Multi-Head Attention (MHA)**]({{< relref "01-multi-head-attention" >}})
+    - the baseline: Q/K/V projections, multi-head parallelism, and why the KV cache becomes a problem
+- [**The Rest of the Transformer**]({{< relref "02-the-rest-of-the-transformer" >}})
+    - FFN (dense and gated/SwiGLU), residual connections, layer normalization, positional encoding, and the full forward pass end-to-end
+
+### Part 2: Architecture Innovations
+
+- [**Multi-Query Attention (MQA) & Grouped-Query Attention (GQA)**]({{< relref "03-mqa-gqa" >}})
+    - sharing KV heads across query heads to shrink the cache without destroying quality
+- [**Multi-head Latent Attention (MLA)**]({{< relref "04-mla" >}})
+    - compressing KV into a low-rank latent space, the absorption trick, and why prefill and decode take completely different code paths
+- [**Mixture of Experts (MoE)**]({{< relref "05-moe" >}})
+    - sparse FFN with learned routing: 256 experts but each token uses only 8, the permute-compute-unpermute pattern, and shared experts
+
+### Part 3: Reducing Attention Cost
+
+- [**Sliding Window & Local Attention**]({{< relref "06-sliding-window" >}})
+    - limiting attention to a fixed window to cap memory, from Longformer and BigBird to Mistral's sliding window
+- [**Sparse Attention (DeepSeek NSA/DSA)**]({{< relref "07-sparse-attention" >}})
+    - learned dynamic token selection: a lightweight MQA indexer picks the top-k most relevant tokens per query
+- [**Linear Attention & Gated DeltaNet (GDN)**]({{< relref "08-linear-attention" >}})
+    - replacing softmax with linear maps and gated delta rules for O(s) attention
+
+### Part 4: Flash Attention
+
+- [**Flash Attention v1 & v2**]({{< relref "09-flash-attention-v1-v2" >}})
+    - tiling, online softmax, the log-sum-exp trick, why swapping the loop order matters, and causal masking skip
+- [**Flash Attention v3 & v4**]({{< relref "10-flash-attention-v3-v4" >}})
+    - Hopper: TMA async loads, WGMMA, two-stage pipelining;
+      Blackwell: ping-pong scheduling, TMEM, software exponential emulation, lazy rescaling
+
+### Part 5: Parallelism Done Right
+
+- [**Tensor & Pipeline Parallelism**]({{< relref "11-tensor-pipeline-parallelism" >}})
+    - splitting heads and weight matrices across GPUs, column/row parallel linear layers, all-reduce patterns
+- [**Expert Parallelism & MoE at Scale**]({{< relref "12-expert-parallelism" >}})
+    - distributing experts across GPUs, all-to-all communication, load balancing
+- [**Context & Ring Parallelism**]({{< relref "13-context-ring-parallelism" >}})
+    - splitting the KV context across devices, LSE-based merging for mathematically exact results
+
+### Part 6: Training at Scale
+
+- [**Attention in Training**]({{< relref "14-attention-in-training" >}})
+    - memory profile (activations vs weights), gradient checkpointing, mixed precision, backward pass through FlashAttention
+- [**Distributed Training (ZeRO & FSDP)**]({{< relref "15-distributed-training" >}})
+    - ZeRO stages 1/2/3, FSDP as PyTorch-native ZeRO-3, how attention layers are sharded during training
+
+### Part 7: Serving Infrastructure
+
+- [**Paged Attention & KV Cache Management**]({{< relref "16-paged-attention" >}})
+    - virtual memory for KV cache: block allocation, block tables, the scheduler as sole owner of GPU memory
+- [**Batching & Scheduling**]({{< relref "17-batching-scheduling" >}})
+    - continuous batching, mixed prefill-decode, chunked prefill, ragged batching, and the CPU-GPU scheduling loop
+- [**Speculative Decoding**]({{< relref "18-speculative-decoding" >}})
+    - draft-then-verify for multi-token generation, rejection sampling, and variants: Medusa, EAGLE, layer-skipping, n-gram
+- [**Attention Backends**]({{< relref "19-attention-backends" >}})
+    - FlashAttention, FlashInfer, FlashMLA, CUTLASS, Triton, cuDNN — how vLLM selects and dispatches to the right kernel
+
+### Appendices
+
+- [**GPU Architecture Primer**]({{< relref "appendix-a-gpu-architecture" >}}) — compute hierarchy (threads to SMs), memory hierarchy (registers to HBM), data movement (TMA, NCCL), and what each GPU generation added for attention
+- [**Position Encodings (RoPE, ALiBi, NoPE)**]({{< relref "appendix-b-position-encodings" >}}) — how models encode token position, entangled with every attention variant
+- [**Quantization for Attention**]({{< relref "appendix-c-quantization" >}}) — FP8, FP4, scale granularity, and fusing quantization into attention kernels
+- [**Differential & Residual Attention**]({{< relref "appendix-d-differential-residual" >}}) — noise cancellation via dual softmax maps, and explicit residual connections
+
 ## Notation
 
 The same symbols are used consistently across every post in this series.
@@ -103,71 +172,3 @@ Where ambiguous, the post will clarify which $k$ is meant.
 | LSE | Log-Sum-Exp (softmax normalization statistic) |
 | SM | Streaming Multiprocessor (GPU compute unit) |
 
-## The Roadmap
-
-### Part 1: Attention Is All You Need
-
-- [ ] **Multi-Head Attention (MHA)**
-    - the baseline: Q/K/V projections, multi-head parallelism, and why the KV cache becomes a problem
-- [ ] **The Rest of the Transformer**
-    - FFN (dense and gated/SwiGLU), residual connections, layer normalization, positional encoding, and the full forward pass end-to-end
-
-### Part 2: Architecture Innovations
-
-- [ ] **Multi-Query Attention (MQA) & Grouped-Query Attention (GQA)**
-    - sharing KV heads across query heads to shrink the cache without destroying quality
-- [ ] **Multi-head Latent Attention (MLA)**
-    - compressing KV into a low-rank latent space, the absorption trick, and why prefill and decode take completely different code paths
-- [ ] **Mixture of Experts (MoE)**
-    - sparse FFN with learned routing: 256 experts but each token uses only 8, the permute-compute-unpermute pattern, and shared experts
-
-### Part 3: Reducing Attention Cost
-
-- [ ] **Sliding Window & Local Attention**
-    - limiting attention to a fixed window to cap memory, from Longformer and BigBird to Mistral's sliding window
-- [ ] **Sparse Attention (DeepSeek NSA/DSA)**
-    - learned dynamic token selection: a lightweight MQA indexer picks the top-k most relevant tokens per query
-- [ ] **Linear Attention & Gated DeltaNet (GDN)**
-    - replacing softmax with linear maps and gated delta rules for O(s) attention
-
-### Part 4: Flash Attention
-
-- [ ] **Flash Attention v1 & v2**
-    - tiling, online softmax, the log-sum-exp trick, why swapping the loop order matters, and causal masking skip
-- [ ] **Flash Attention v3 & v4**
-    - Hopper: TMA async loads, WGMMA, two-stage pipelining;
-      Blackwell: ping-pong scheduling, TMEM, software exponential emulation, lazy rescaling
-
-### Part 5: Parallelism Done Right
-
-- [ ] **Tensor & Pipeline Parallelism**
-    - splitting heads and weight matrices across GPUs, column/row parallel linear layers, all-reduce patterns
-- [ ] **Expert Parallelism & MoE at Scale**
-    - distributing experts across GPUs, all-to-all communication, load balancing
-- [ ] **Context & Ring Parallelism**
-    - splitting the KV context across devices, LSE-based merging for mathematically exact results
-
-### Part 6: Training at Scale
-
-- [ ] **Attention in Training**
-    - memory profile (activations vs weights), gradient checkpointing, mixed precision, backward pass through FlashAttention
-- [ ] **Distributed Training (ZeRO & FSDP)**
-    - ZeRO stages 1/2/3, FSDP as PyTorch-native ZeRO-3, how attention layers are sharded during training
-
-### Part 7: Serving Infrastructure
-
-- [ ] **Paged Attention & KV Cache Management**
-    - virtual memory for KV cache: block allocation, block tables, the scheduler as sole owner of GPU memory
-- [ ] **Batching & Scheduling**
-    - continuous batching, mixed prefill-decode, chunked prefill, ragged batching, and the CPU-GPU scheduling loop
-- [ ] **Speculative Decoding**
-    - draft-then-verify for multi-token generation, rejection sampling, and variants: Medusa, EAGLE, layer-skipping, n-gram
-- [ ] **Attention Backends**
-    - FlashAttention, FlashInfer, FlashMLA, CUTLASS, Triton, cuDNN — how vLLM selects and dispatches to the right kernel
-
-### Appendices
-
-- [ ] **GPU Architecture Primer** — compute hierarchy (threads to SMs), memory hierarchy (registers to HBM), data movement (TMA, NCCL), and what each GPU generation added for attention
-- [ ] **Position Encodings (RoPE, ALiBi, NoPE)** — how models encode token position, entangled with every attention variant
-- [ ] **Quantization for Attention** — FP8, FP4, scale granularity, and fusing quantization into attention kernels
-- [ ] **Differential & Residual Attention** — noise cancellation via dual softmax maps, and explicit residual connections

@@ -22,7 +22,7 @@ $.Params.cover.captionDisplay | default true}} {{ with $cover }}
 {{ end }} {{ end }}
 
 <div data-pagefind-body>
-  <h1 data-pagefind-meta="title">{{ .Title }}</h1>
+  <h1 data-pagefind-meta="title">{{ .Title }}{{ if .Draft }} <span style="font-size: 0.5em; color: #999; font-weight: normal;">draft</span>{{ end }}</h1>
   {{ $showFrontMatter := .Params.showFrontMatter | default
   .Site.Params.posts.showFrontMatter }} {{if not $showFrontMatter}} {{else}} {{
   $readingTime := div (float .WordCount) .Site.Params.posts.readingSpeed }} {{

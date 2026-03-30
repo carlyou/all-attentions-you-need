@@ -1,0 +1,39 @@
+{{ define "main" }}
+<div class="home-page-main-div">
+  <div id="home-posts-page">
+    {{ $posts := (where site.RegularPages "Type" "posts").ByWeight }}
+
+    {{ $parts := slice
+      (dict "min" 1001 "max" 1009 "name" "Prologue")
+      (dict "min" 1010 "max" 1019 "name" "Part 1: Attention Is All You Need")
+      (dict "min" 1020 "max" 1029 "name" "Part 2: Architecture Innovations")
+      (dict "min" 1030 "max" 1039 "name" "Part 3: Reducing Attention Cost")
+      (dict "min" 1040 "max" 1049 "name" "Part 4: Flash Attention")
+      (dict "min" 1050 "max" 1059 "name" "Part 5: Parallelism Done Right")
+      (dict "min" 1060 "max" 1069 "name" "Part 6: Training at Scale")
+      (dict "min" 1070 "max" 1079 "name" "Part 7: Serving Infrastructure")
+      (dict "min" 1090 "max" 1099 "name" "Appendices")
+    }}
+
+    {{ range $parts }}
+      {{ $min := .min }}
+      {{ $max := .max }}
+      {{ $filtered := where $posts "Weight" ">=" $min }}
+      {{ $filtered = where $filtered "Weight" "<=" $max }}
+      {{ if $filtered }}
+      <h3 style="margin-top: 1.5em; margin-bottom: 0.5em;">{{ .name }}</h3>
+      {{ range $filtered }}
+      <div>
+        <a
+          href="{{ .RelPermalink }}"
+          style="display: inline-block; margin-right: 8px; font-size: large"
+        >
+          {{ .LinkTitle }}
+        </a>
+      </div>
+      {{ end }}
+      {{ end }}
+    {{ end }}
+  </div>
+</div>
+{{ end }}
