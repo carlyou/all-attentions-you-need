@@ -179,7 +179,69 @@ The scale matrix $s_i^X \cdot s_j^W$ is an outer product of two vectors — $n$ 
 
 ## Post-Training Quantization (PTQ)
 
-<!-- Section content: Task 4 -->
+PTQ quantizes a pre-trained model without retraining. You have the model weights and a small calibration dataset — no training loop, no gradient updates. The challenge: find a quantized representation that preserves the model's output quality despite reducing precision. The methods below represent a progression from naive rounding to increasingly clever strategies for deciding *where* to spend your limited precision budget.
+
+### Round-to-Nearest (RTN)
+
+The simplest approach: quantize each weight independently to the nearest representable value. Given a scale factor $s$ (determined by whichever scaling strategy you choose from the section above), each weight is mapped as:
+
+$$
+w_q = s \cdot \left\lfloor \frac{w}{s} \right\rceil
+$$
+
+where $\lfloor \cdot \rceil$ denotes rounding to the nearest integer. No calibration data needed, no inter-weight dependencies considered — just round and move on.
+
+RTN works surprisingly well at 8 bits, where 256 levels provide enough resolution that individual rounding errors stay small and don't accumulate destructively across a matrix multiply. But at 4 bits you have only 16 representable levels. Each weight gets rounded by up to half a step size, and these errors aren't independent — they accumulate across the dot product. For a $d$-dimensional dot product, the expected squared error grows proportionally with $d$. In a model with 80+ layers, each feeding into the next, the compounding effect makes naive 4-bit RTN unusable for most architectures. You need smarter methods.
+
+### GPTQ
+
+**GPTQ** [[2]](#ref-2) takes a fundamentally different approach: quantize weights one at a time, and *compensate* the remaining unquantized weights for the error you just introduced. If rounding weight $w_{13}$ down introduced an error in the layer's output, you can slightly adjust weights $w_{14}, w_{15}, \ldots$ to cancel that error — before you quantize them too.
+
+This builds on **Optimal Brain Quantization (OBQ)**, which frames quantization as minimizing the layer's reconstruction loss $\| WX - \hat{W}X \|^2$. The optimal compensation for remaining weights $\mathbf{w}_F$ when quantizing weight $w_q$ is:
+
+$$
+\delta_F = -\frac{w_q - \text{quant}(w_q)}{[\mathbf{H}_F^{-1}]_{qq}} \cdot (\mathbf{H}_F^{-1})_{:,q}
+$$
+
+where $\mathbf{H}_F = 2 X X^\top$ is the Hessian of the reconstruction loss (computed from calibration data), and $[\mathbf{H}_F^{-1}]_{qq}$ is the diagonal element corresponding to the weight being quantized. Intuitively, the Hessian tells you how sensitive the output is to each weight — weights with high curvature need careful compensation, while low-curvature weights can absorb more adjustment.
+
+OBQ's problem is cost: it requires updating the Hessian inverse after every single weight, giving $O(d^3)$ complexity per weight. GPTQ's key innovation is processing weights in **column order** with a lazy batch update to the Hessian. Instead of recomputing the inverse after each weight, GPTQ quantizes an entire column, accumulates the compensation, and updates the Hessian once per column. This reduces the amortized cost to $O(d^2)$ per weight, making it practical for billion-parameter models. The result: accurate 4-bit weight quantization in minutes rather than hours. GPTQ is now one of the most widely used methods for producing INT4 weight-only models.
+
+### AWQ (Activation-Aware Weight Quantization)
+
+**AWQ** [[3]](#ref-3) starts from an empirical observation: not all weight channels are equally important. Roughly 1% of weight channels correspond to consistently large activations across calibration inputs — these are **salient channels** that carry a disproportionate share of the signal. Quantizing them carelessly causes outsized damage.
+
+Rather than the Hessian-based compensation of GPTQ, AWQ applies a simple per-channel scaling before quantization:
+
+$$
+\hat{W} = \text{quant}(W \cdot \text{diag}(\mathbf{s}))
+$$
+
+where the scale vector $\mathbf{s}$ is chosen to *protect* salient channels. The idea: multiplying a salient channel's weights by a scale $s_j > 1$ before quantization effectively gives that channel finer quantization resolution (since the step size relative to the scaled values is smaller). The corresponding activation channel is divided by $s_j$ at runtime to preserve the mathematical result.
+
+The scale factors are determined by activation magnitudes from the calibration set — channels with consistently large activations get higher scales. This is conceptually much simpler than GPTQ: no Hessian computation, no sequential weight updates, no column-order processing. Calibration is faster and the implementation is straightforward. Despite this simplicity, AWQ achieves comparable quality to GPTQ at INT4, making it a popular choice when calibration speed matters.
+
+### SmoothQuant
+
+The methods above focus on **weight-only quantization**: weights are INT4/INT8 while activations remain in FP16 (a W4A16 or W8A16 scheme). This helps with memory bandwidth — fewer bytes to load — but the actual matrix multiply still uses FP16 arithmetic for the activations. To get the full speedup from INT8 Tensor Cores, you want **W8A8**: both weights *and* activations quantized to 8 bits.
+
+The problem is that activations are much harder to quantize than weights. Weights have well-behaved, roughly Gaussian distributions. Activations, especially in large language models, develop **outlier channels**: specific feature dimensions where values are 10--100$\times$ larger than the rest. These outliers appear at fixed channel positions across tokens and layers. A per-tensor or even per-token scale is dominated by these outliers, crushing the resolution for the 99% of channels that have normal magnitudes.
+
+**SmoothQuant** [[4]](#ref-4) solves this with a mathematical trick: migrate the quantization difficulty from activations to weights. For a linear layer $Y = X W^\top$, insert a diagonal scaling matrix:
+
+$$
+Y = (X \cdot \text{diag}(\mathbf{s})^{-1}) \cdot (\text{diag}(\mathbf{s}) \cdot W^\top) = \hat{X} \hat{W}^\top
+$$
+
+The smoothed activation $\hat{X} = X \cdot \text{diag}(\mathbf{s})^{-1}$ has its outlier channels divided down — easier to quantize. The adjusted weight $\hat{W}^\top = \text{diag}(\mathbf{s}) \cdot W^\top$ absorbs the outlier magnitudes — but weights are inherently more tolerant of per-channel variation because we can use per-channel scaling.
+
+The smoothing factor balances the difficulty between activations and weights:
+
+$$
+s_j = \frac{\max(|X_{:,j}|)^\alpha}{\max(|W_{:,j}|)^{1-\alpha}}, \quad \alpha \in [0, 1]
+$$
+
+When $\alpha = 1$, all difficulty stays on the activations (no smoothing). When $\alpha = 0$, all difficulty moves to the weights. In practice, $\alpha \approx 0.5$ works well for most models. The smoothing factors are computed offline from calibration data and folded into the weights, so there is zero runtime overhead — just a modified weight matrix that makes W8A8 quantization viable.
 
 ## Quantization-Aware Training (QAT)
 
