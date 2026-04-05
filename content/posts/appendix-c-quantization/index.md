@@ -245,7 +245,57 @@ When $\alpha = 1$, all difficulty stays on the activations (no smoothing). When 
 
 ## Quantization-Aware Training (QAT)
 
-<!-- Section content: Task 5 -->
+PTQ treats the model as frozen — it can only rearrange the quantization to minimize damage. QAT goes further: it lets the model *adapt* to quantization during training, learning weight values that are robust to reduced precision. The cost is a training run; the payoff is near-zero quality loss even at aggressive bit-widths.
+
+### The straight-through estimator (STE)
+
+The fundamental problem: quantization (rounding + clamping) is piecewise-constant, so its gradient is zero almost everywhere. Between any two adjacent quantization levels the output is flat — the derivative is zero. At the transition points the function jumps discontinuously — the derivative is undefined. You can't backpropagate through a function with no useful gradient.
+
+The **straight-through estimator (STE)** sidesteps this with a deliberately inconsistent pair of definitions for the forward and backward pass. During the forward pass, apply quantization normally — the network sees the actual quantized values. During the backward pass, *pretend quantization didn't happen* and pass the gradient through unchanged:
+
+$$
+\text{Forward:} \quad \hat{w} = \text{quant}(w)
+$$
+
+$$
+\text{Backward:} \quad \frac{\partial \mathcal{L}}{\partial w} \approx \frac{\partial \mathcal{L}}{\partial \hat{w}}
+$$
+
+This is a **biased gradient estimator** — the gradient the optimizer sees doesn't correspond to the actual forward computation. Yet it works remarkably well in practice. The intuition: the STE gradient points in roughly the right direction, and over many steps the optimizer learns to place weights near quantization grid points where rounding error is minimal. Weights that start between two levels get nudged toward the nearest one; weights that are already close to a grid point stay put.
+
+Think of the forward pass as following a staircase function (flat steps with jumps), while the backward pass follows the identity function (a straight diagonal line). The "straight-through" name comes from this backward path: the gradient passes straight through the quantization operation as if it were the identity.
+
+<!-- DIAGRAM: ste.svg — two side-by-side plots. Left: "Forward" showing staircase quantization function. Right: "Backward" showing identity function (straight line) with annotation "gradient passes through unchanged". -->
+
+### FP8 mixed-precision training
+
+**Traditional mixed-precision training** (Micikevicius et al. [[5]](#ref-5)) established the pattern: keep **master weights** in FP32 for the optimizer update, but run the forward and backward GEMM operations in FP16 or BF16. The reduced-precision GEMMs are $2\times$ faster on Tensor Cores, while the FP32 master copy prevents the small optimizer updates from vanishing due to limited mantissa bits.
+
+**FP8 mixed-precision training** extends this idea one step further. DeepSeek-V3 [[8]](#ref-8) demonstrated end-to-end FP8 training at the 671B-parameter scale with negligible quality loss. The recipe splits the two FP8 sub-formats across their natural roles:
+
+- **Forward GEMMs:** weights and activations are cast to **E4M3** (higher precision, narrower range). The Tensor Core accumulates partial sums in FP32 to avoid rounding error in the reduction.
+- **Backward GEMMs:** gradients are cast to **E5M2** (wider dynamic range, coarser precision). Gradients span many orders of magnitude — the extra exponent bit in E5M2 prevents overflow/underflow. Again, accumulation in FP32.
+- **Master weights:** kept in FP32 for the optimizer (Adam) update. The optimizer's momentum and variance terms also stay in FP32. Only the GEMM operands are in FP8.
+
+**Per-tile scaling** is critical to making this work. DeepSeek-V3 uses **128 x 128 tile granularity** for scale factors — each $128 \times 128$ block of a GEMM operand gets its own FP8 scale. This is finer than per-tensor scaling (which would lose too much resolution for a 671B model) but coarser than per-element (which would be prohibitively expensive). The tile size aligns with the Tensor Core's native tile dimensions, so the scaling overhead is minimal.
+
+The result: training FLOPs are dominated by FP8 Tensor Core operations, which deliver roughly $2\times$ throughput over BF16 on Hopper GPUs. DeepSeek-V3 reported that FP8 training matched BF16 training quality while substantially reducing compute cost — making FP8 the new practical baseline for large-scale training.
+
+### Loss scaling
+
+When training in reduced precision, small gradient values can **underflow** — round to zero in the limited-precision format. A gradient of $10^{-6}$ is well within FP32's range but may vanish in FP16 (smallest normal: $\sim 6 \times 10^{-5}$). Once a gradient underflows, the corresponding weight stops learning.
+
+**Static loss scaling** is the simplest fix: multiply the loss by a large constant (e.g., 1024) *before* the backward pass. By the chain rule, every gradient in the network is scaled by the same factor, shifting the entire gradient distribution into the representable range. After the backward pass, divide all gradients by the same constant before the optimizer step:
+
+$$
+\mathcal{L}_{\text{scaled}} = s \cdot \mathcal{L}, \quad \nabla w = \frac{1}{s} \cdot \frac{\partial \mathcal{L}_{\text{scaled}}}{\partial w}
+$$
+
+The problem: if the scale is too large, gradients *overflow* (become Inf/NaN). If too small, they still underflow. A fixed constant can't adapt to the gradient distribution as it evolves during training.
+
+**Dynamic loss scaling** solves this by adjusting the scale at runtime. Start with a large scale (e.g., $2^{16}$). If a NaN or Inf appears in the gradients, the step is skipped and the scale is halved. If $N$ consecutive steps are stable (no NaN/Inf), the scale is doubled. This finds and tracks the largest safe scale automatically. Dynamic loss scaling is the default in most mixed-precision frameworks (PyTorch's `GradScaler`, NVIDIA Apex).
+
+For FP8 training, loss scaling is less critical than it was for FP16. **E5M2** (used for gradients) has 5 exponent bits — the same dynamic range as FP16 — so it faces similar underflow risks, and loss scaling is still applied. **BF16**, with its 8 exponent bits matching FP32's range, rarely needs loss scaling at all: its $\sim 10^{-38}$ minimum normal is small enough to represent virtually any gradient encountered in practice.
 
 ## Hardware Support
 
