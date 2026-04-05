@@ -332,7 +332,72 @@ For details on the Tensor Core microarchitecture — including WGMMA (Hopper's w
 
 ## Where Quantization Hits Attention
 
-<!-- Section content: Task 7 -->
+The foundations above apply to any GEMM — the formats, scaling strategies, and PTQ/QAT techniques work the same whether you're quantizing an FFN projection or a convolution. But attention has **four distinct quantization points**, each with different operand characteristics and error sensitivity. Understanding these differences is what separates "quantize everything to FP8" from a quantization strategy that actually works.
+
+### 1. QKV projection GEMMs
+
+The first quantization point is the most straightforward: the linear projections that produce Q, K, and V from the input.
+
+$$
+Q = XW^Q, \quad K = XW^K, \quad V = XW^V
+$$
+
+These are standard weight $\times$ activation GEMMs. Weight quantization uses **per-channel, static** scaling — the scale factors are computed once from calibration data and baked in. Activation quantization uses **per-token, dynamic** scaling — each token's scale is computed on the fly based on its actual values.
+
+There is nothing attention-specific here. The QKV projections have the same weight and activation distributions as FFN GEMMs, the same outlier patterns, and the same per-token $\times$ per-channel scaling recipe described in the Scaling Strategies section above. All the PTQ and QAT techniques (GPTQ, AWQ, SmoothQuant) apply identically.
+
+### 2. $QK^\top$ score computation
+
+The second point is where things get interesting. The attention score computation $S = QK^\top / \sqrt{d_k}$ is a GEMM between two **activations** — there are no static weights. Both Q and K are dynamic tensors whose distributions change with every input. Both require **per-token, dynamic scaling**: you cannot precompute scale factors offline.
+
+The critical issue is what happens *after* this GEMM. The raw scores pass through softmax:
+
+$$
+\alpha_{ij} = \frac{e^{s_{ij}}}{\sum_k e^{s_{ik}}}
+$$
+
+where $s_{ij} = q_i \cdot k_j / \sqrt{d_k}$. Softmax is an exponential — and exponentials amplify errors. If the true score is $s$ and quantization introduces an error $\epsilon$ so the computed score is $s + \epsilon$, the effect on the attention weight is:
+
+$$
+\frac{\text{softmax}(s + \epsilon)}{\text{softmax}(s)} \approx e^{\epsilon} \cdot \frac{\sum_k e^{s_k}}{\sum_k e^{s_k + \epsilon_k}}
+$$
+
+The error doesn't simply add — it **redistributes attention mass**. A quantization error of $\epsilon = 0.5$ in a single score creates a multiplicative factor of $e^{0.5} \approx 1.65$ — that token receives 65% more attention weight than it should, with the excess stolen from every other token. At lower precision (FP4), where quantization errors can easily reach this magnitude, the attention pattern can be substantially distorted.
+
+This makes $QK^\top$ the **most error-sensitive** of the four quantization points. It's the primary reason that naive FP8 quantization of attention can degrade quality even when the same format works fine for FFN layers.
+
+### 3. Score $\times$ V value aggregation
+
+The third point is the weighted sum of value vectors: $O = \alpha V$, where $\alpha$ is the post-softmax attention weight matrix and $V$ is the value matrix.
+
+This GEMM has a favorable asymmetry. The attention weights $\alpha$ are **well-bounded**: every element lies in $[0, 1]$ and each row sums to 1. There are no outliers, the range is known a priori, and the distribution is friendly to quantization. You could use a fixed scale factor and waste very little resolution.
+
+The V matrix, on the other hand, has the same dynamic range challenges as K — it's an activation tensor with potential outliers, requiring per-token dynamic scaling.
+
+The overall sensitivity is **lower than $QK^\top$** for a simple reason: the bounded attention weights act as a dampener. Even if V has quantization errors, the weighted sum averages across many value vectors, and the softmax-clamped weights prevent any single error from dominating. There is no exponential amplification step downstream.
+
+### 4. KV cache storage
+
+The fourth point is unique to inference: K and V tensors are quantized when written to the KV cache and dequantized every time a decode step reads them. For long-context inference, the KV cache dominates memory — compressing it from BF16 to FP8 or FP4 is one of the highest-impact quantization decisions.
+
+The error characteristics differ from the GEMM quantization points above:
+
+- **Single quantize-dequantize cycle**: each cached token undergoes one round of quantization error at write time. That error persists for the token's entire lifetime in the cache, but it doesn't accumulate — there's no repeated requantization.
+- **Per-channel or per-head scaling** is typical. Since each head has a consistent value distribution across positions, a single scale per head works well.
+- **Aggregate effect at long sequences**: across $s$ cached tokens, the per-token quantization errors form a distribution. No individual error is catastrophic, but the aggregate effect matters — when the model attends over thousands of tokens, the errors across all cached K vectors combine in the $QK^\top$ dot products. At very long sequences, this aggregate noise can shift the attention distribution enough to matter.
+
+For a deeper treatment of KV cache compression strategies — including mixed-precision caching, adaptive bit-width, and token eviction — see [post 18]({{< relref "18-kv-cache-compression" >}}).
+
+### Sensitivity summary
+
+| Point | Operands | Scaling | Sensitivity | Why |
+|---|---|---|---|---|
+| QKV projections | weight $\times$ activation | per-channel $\times$ per-token | Low | Standard GEMM, no amplification |
+| $QK^\top$ | activation $\times$ activation | per-token $\times$ per-token | **High** | Softmax amplifies errors exponentially |
+| Score $\times$ V | softmax output $\times$ activation | (bounded) $\times$ per-token | Medium | Bounded weights dampen errors |
+| KV cache | stored activations | per-head / per-channel | Medium | Error persists across full sequence |
+
+<!-- DIAGRAM: attention-quant-points.svg — an attention layer diagram (Q,K,V projections → QK^T → softmax → score*V → output projection) with the four quantization points highlighted in different colors, each labeled with sensitivity level. -->
 
 ## Kernel Fusion
 
