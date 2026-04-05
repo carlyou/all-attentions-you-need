@@ -4,6 +4,7 @@ date: 2026-03-26
 draft: true
 math: true
 toc: true
+tocDepth: 2
 tags: ["quantization", "fp8", "fp4", "nvfp4", "scale", "fusion", "ptq", "qat", "int8", "smoothquant", "gptq", "awq"]
 description: "From number formats and scaling strategies through PTQ, QAT, and fusing quantization into attention kernels — everything you need to understand quantized inference."
 weight: 1093

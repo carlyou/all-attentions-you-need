@@ -50,6 +50,11 @@ body.dark-mode pre {
   border-color: #444;
 }
 
+/* Per-post TOC depth control: set tocDepth in frontmatter (2 = h2 only, 3 = h2+h3, etc.) */
+.toc-depth-2 .toc-body > nav > ul > li > ul { display: none; }
+.toc-depth-3 .toc-body > nav > ul > li > ul > li > ul { display: none; }
+.toc-depth-4 .toc-body > nav > ul > li > ul > li > ul > li > ul { display: none; }
+
 /* Collapse TOC to inline at wider breakpoint to prevent overlap */
 @media only screen and (max-width: 1500px) {
   .toc-container {
