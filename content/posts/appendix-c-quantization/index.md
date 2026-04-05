@@ -29,7 +29,74 @@ Halving $\text{sizeof(dtype)}$ from 2 bytes (BF16) to 1 byte (FP8) nearly halves
 
 ## Number Formats
 
-<!-- Section content: Task 2 -->
+Quantization's first decision is the **target format**. There are two families: **integer** formats (fixed step size between representable values, simple hardware) and **floating-point** formats (variable step size via an exponent field, better for values spanning a wide dynamic range). Modern LLM quantization has shifted decisively from integer to floating-point — the value distributions inside transformers are too peaky and heavy-tailed for uniform grids to handle well.
+
+| Format | Bits | Layout | Range | Precision | Primary use |
+|--------|------|--------|-------|-----------|-------------|
+| FP32 | 32 | 1S + 8E + 23M | $\pm 3.4 \times 10^{38}$ | ~7 decimal digits | Master weights |
+| BF16 | 16 | 1S + 8E + 7M | $\pm 3.4 \times 10^{38}$ | ~2 decimal digits | Training/inference baseline |
+| FP16 | 16 | 1S + 5E + 10M | $\pm 6.5 \times 10^{4}$ | ~3 decimal digits | Legacy |
+| INT8 | 8 | 1S + 7 magnitude | $[-128, 127]$ | 1 unit step | PTQ weight quant |
+| FP8 E4M3 | 8 | 1S + 4E + 3M | $\pm 448$ | ~1 decimal digit | Weights + activations |
+| FP8 E5M2 | 8 | 1S + 5E + 2M | $\pm 57344$ | coarser | Gradients |
+| NVFP4 (MX) | 4 | 1E + 2M + shared 8-bit scale | per-block | very coarse | Blackwell TC |
+
+### Integer vs floating-point
+
+**INT8** gives you 256 evenly spaced levels across whatever range you map. If your values are roughly uniform — spread evenly between min and max — this works fine. But neural network weights and activations are emphatically *not* uniform. Weights typically follow a Gaussian-like distribution: most values cluster near zero with a long tail of outliers. With a uniform grid, most of your 256 levels end up in the tails where almost no values live, while the crowded region near zero gets only coarse coverage.
+
+**FP8** solves this with an exponent field that gives *variable* step sizes — small steps near zero (where most weights live) and larger steps for outliers. This is a natural match for neural network value distributions. The step size doubles each time the exponent increments by 1, so the density of representable values is highest near zero and drops off logarithmically. You don't need to "waste" levels on empty regions of the number line.
+
+### FP8: E4M3 vs E5M2
+
+The 8-bit floating-point budget can be split two ways, and the choice matters:
+
+- **E4M3** — 4 exponent bits, 3 mantissa bits. Range $\pm 448$, with 15 distinct exponent values. The extra mantissa bit buys finer precision near zero, making E4M3 the preferred format for **weights and forward activations** where precision matters more than range.
+- **E5M2** — 5 exponent bits, 2 mantissa bits. Range $\pm 57344$, with 31 exponent values. The extra exponent bit doubles the dynamic range at the cost of precision — preferred for **gradients** during training, which can span many orders of magnitude.
+
+<!-- DIAGRAM: bit-layouts.svg — side-by-side bit field diagrams for FP32, BF16, FP8 E4M3, FP8 E5M2, NVFP4. Each shows sign/exponent/mantissa fields with bit counts labeled. -->
+
+**Concrete example: representing 0.1875.** Let's trace the value $0.1875 = 3/16$ through three formats.
+
+First, express it in binary: $0.1875 = 0.0011_2 = 1.1_2 \times 2^{-3}$.
+
+**FP32** (1S + 8E + 23M, bias = 127):
+
+$$
+\text{sign} = 0, \quad \text{exponent} = -3 + 127 = 124 = 01111100_2, \quad \text{mantissa} = 10000000000000000000000_2
+$$
+
+The stored 32 bits: `0 01111100 10000000000000000000000`. Exact representation — no rounding.
+
+**BF16** (1S + 8E + 7M, bias = 127):
+
+$$
+\text{sign} = 0, \quad \text{exponent} = 124 = 01111100_2, \quad \text{mantissa} = 1000000_2
+$$
+
+The stored 16 bits: `0 01111100 1000000`. Still exact — the mantissa `1.1` only needs 1 bit beyond the implicit leading 1, and BF16 has 7 mantissa bits to spare.
+
+**FP8 E4M3** (1S + 4E + 3M, bias = 7):
+
+$$
+\text{sign} = 0, \quad \text{exponent} = -3 + 7 = 4 = 0100_2, \quad \text{mantissa} = 100_2
+$$
+
+The stored 8 bits: `0 0100 100`. Still exact in this case — $0.1875$ is friendly to binary. But you can see how quickly you'd lose precision: with only 3 mantissa bits, any value requiring more than 3 fractional binary digits will be rounded.
+
+### NVFP4 and microscaling (MX)
+
+At 4 bits you have only 16 representable values — far too few for any useful dynamic range on their own. The trick is **microscaling**: a block of $B$ values (typically $B = 32$) shares a single FP8 scale factor. Each individual value uses 4 bits (1 exponent + 2 mantissa), and the shared scale "shifts" the block's representable range to wherever it needs to be.
+
+The effective storage cost per value:
+
+$$
+\text{effective bits} = 4 + \frac{8}{B}
+$$
+
+For $B = 32$, that's $4.25$ bits per value — close to the 4-bit ideal with only a small overhead for the shared scale.
+
+This design is formalized in the **OCP Microscaling (MX) specification** [[7]](#ref-7). NVIDIA's Blackwell Tensor Cores consume NVFP4 natively, meaning the dequantization from 4-bit block format to wider types happens inside the Tensor Core itself — no separate dequantize kernel needed. This is what enables FlashAttention v4's FP4 path to actually hit the hardware's peak throughput.
 
 ## Scaling Strategies
 
