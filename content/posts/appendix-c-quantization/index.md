@@ -468,7 +468,25 @@ In serving frameworks (vLLM, TensorRT-LLM), the KV cache is often stored in FP8 
 
 ## Quantization in MLA Paths
 
-<!-- Section content: Task 9 -->
+[MLA]({{< relref "04-mla" >}}) introduced two distinct attention code paths: prefill (decompress and run standard MHA) and decode (absorb decompression into query, attend in latent space). Quantization interacts differently with each.
+
+### Prefill: standard FP8 attention
+
+After decompression, K and V are standard-shaped: $(n, H, d_k)$. Standard FP8 FlashAttention applies directly — same as any MHA model. The latent $\mathbf{c}$ and decompression happen in BF16 (the projection GEMMs can use FP8). This path is straightforward — no MLA-specific concerns.
+
+### Decode: quantized latent cache
+
+The absorbed decode path operates in **latent space**: attention over cached $\mathbf{c}$ vectors of dimension $d_c$. Storing $\mathbf{c}$ in FP8 costs $576 \times 1 = 576$ bytes per token (vs 1152 bytes in BF16) — a further 2$\times$ reduction on top of MLA's architectural compression.
+
+**Stacked compression.** MLA gives ~57$\times$ over MHA, FP8 gives another 2$\times$, for a total ~114$\times$ KV cache reduction.
+
+**Calibration caveat.** The absorbed query $\mathbf{q}' = \mathbf{q} \cdot {W^{\text{up}}_K}^\top$ has a different distribution than a standard query — it includes the decompression matrix. Scale factors calibrated on standard attention may not transfer; MLA decode may need its own calibration pass.
+
+One quantization-friendly property of this path: the $\mathbf{c} \cdot {\mathbf{q}'}^\top$ dot product is in a higher-dimensional space ($d_c = 512$ vs $d_k = 128$), which helps quantization. More elements in the dot product means the FP32 accumulator averages out per-element errors better.
+
+### Sparse attention indexer (FP8 keys)
+
+DeepSeek-V3.2's NSA/DSA indexer ([post 07]({{< relref "07-sparse-attention" >}})) caches indexer keys in FP8. The indexer makes a coarse decision — "which tokens are worth attending to?" — not exact scores. FP8 is sufficient because the indexer only needs to rank tokens roughly, not compute precise attention weights. Memory saving: the indexer cache costs ~132 bytes per token in FP8 vs 264 in BF16.
 
 ## Quantization in FFN / MoE
 
