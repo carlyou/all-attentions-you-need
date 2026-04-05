@@ -100,7 +100,82 @@ This design is formalized in the **OCP Microscaling (MX) specification** [[7]](#
 
 ## Scaling Strategies
 
-<!-- Section content: Task 3 -->
+Even with the right number format, you need to map the actual value range into the representable range. The **scale factor** does this mapping. The key design choice: how many values share a single scale factor?
+
+The quantize-dequantize round-trip looks like this:
+
+$$
+X_q = \text{clamp}\!\left(\left\lfloor \frac{X}{s} \right\rceil,\; q_{\min},\; q_{\max}\right)
+$$
+
+$$
+\hat{X} = s \cdot X_q
+$$
+
+where $s$ is the scale factor, $\lfloor \cdot \rceil$ is round-to-nearest, and $[q_{\min}, q_{\max}]$ is the format's representable range. The **quantization error** is $X - \hat{X}$.
+
+The scale factor controls the trade-off between *clipping* (values outside the representable range get clamped, introducing large errors) and *rounding* (values inside the range get rounded to the nearest representable value, introducing small errors). A well-chosen scale minimizes the sum of both. The granularity at which you assign scale factors — per-tensor, per-channel, per-token, or per-group — determines how tightly each region of the tensor can be fit.
+
+### Per-tensor scaling
+
+One scale for the entire tensor:
+
+$$
+s = \frac{\max(|X|)}{q_{\max}}
+$$
+
+This is the cheapest option: one scale to store and one scale to apply. But a single outlier stretches the range, wasting resolution for the majority of values. If one weight in a matrix is $10\times$ larger than the rest, the step size between representable values is set by that outlier, and the 99.9% of weights clustered near zero get only coarse coverage.
+
+Per-tensor scaling is acceptable for 8-bit weights (which tend to have narrow, well-behaved distributions), but poor for activations (which are outlier-prone, especially in large models).
+
+### Per-channel scaling
+
+One scale per row or column of a weight matrix. For $W \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$, you compute one scale per output channel (row), giving $d_{\text{out}}$ scales total:
+
+$$
+s_j = \frac{\max(|W_{j,:}|)}{q_{\max}}, \quad j = 1, \ldots, d_{\text{out}}
+$$
+
+This is the standard approach for weight quantization. Each output channel can have a different range — if channel 42 has weights spanning $[-0.5, 0.5]$ while channel 17 spans $[-2.0, 2.0]$, each gets its own scale that covers its range tightly. The overhead is small: $d_{\text{out}}$ extra FP16/FP32 values per weight matrix, which is negligible compared to $d_{\text{out}} \times d_{\text{in}}$ quantized weights.
+
+### Per-token scaling
+
+One scale per row of the activation matrix $X \in \mathbb{R}^{n \times d}$: one scale per token.
+
+$$
+s_i = \frac{\max(|X_{i,:}|)}{q_{\max}}, \quad i = 1, \ldots, n
+$$
+
+Activations vary wildly across tokens — a token for "the" vs one for a rare technical term may have $10\times$ different magnitude. Per-token scaling lets each token use its own range. The catch: unlike weight scales (which can be precomputed offline), per-token scales must be computed **dynamically at runtime**, since activations depend on the input. This adds a reduction operation (find the max of each row) before every quantized GEMM, but on modern hardware the cost is small relative to the GEMM itself.
+
+### Per-group / block scaling (MX)
+
+One scale per contiguous block of $B$ values. For a vector of length $d$, that's $\lceil d / B \rceil$ scales:
+
+$$
+s_k = \frac{\max(|X_{kB:(k+1)B}|)}{q_{\max}}, \quad k = 0, 1, \ldots, \lceil d/B \rceil - 1
+$$
+
+This is the finest practical granularity — it approaches per-element accuracy at the cost of $\text{sizeof(scale)} / B$ overhead per value. This is exactly the MX/NVFP4 approach described in the Number Formats section above: $B = 32$, each shared scale is FP8 (8 bits), giving $8/32 = 0.25$ bits overhead per value. The total effective cost is $4.25$ bits per value rather than the raw 4 bits.
+
+Per-group scaling is particularly valuable for FP4 quantization, where 4 bits alone provide only 16 representable values — the shared scale "shifts" each block to the right region of the number line, dramatically improving effective resolution.
+
+<!-- DIAGRAM: scaling-granularity.svg — a matrix with colored overlays showing: per-tensor (one color for whole matrix), per-channel (one color per row), per-token (one color per column), per-group (small blocks within the matrix). Each has its scale factor labeled. -->
+
+### Why per-token × per-channel is the standard
+
+For a GEMM $Y = X W^\top$ where $X \in \mathbb{R}^{n \times d_{\text{in}}}$ and $W \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$:
+
+- Quantize $X$ with **per-token** scales: one scale $s_i^X$ per row of $X$ (per token).
+- Quantize $W$ with **per-channel** scales: one scale $s_j^W$ per row of $W$ (per output channel).
+
+Each output element $Y_{i,j}$ is the dot product of row $i$ of $X$ with row $j$ of $W$. The combined scale is simply:
+
+$$
+Y_{i,j} = s_i^X \cdot s_j^W \cdot (X_q \cdot W_q^\top)_{i,j}
+$$
+
+The scale matrix $s_i^X \cdot s_j^W$ is an outer product of two vectors — $n$ token scales and $d_{\text{out}}$ channel scales — which can be applied as a cheap post-processing step after the integer/FP8 GEMM finishes. No per-element scale lookups inside the inner loop, no complex indexing. This is why FP8 GEMM libraries (cuBLAS, CUTLASS) default to the per-token $\times$ per-channel configuration, and why the FP8 attention kernels in FlashAttention v3 [[4]](#ref-4) adopt the same pattern for the $QK^\top$ and $\text{score} \times V$ GEMMs.
 
 ## Post-Training Quantization (PTQ)
 
