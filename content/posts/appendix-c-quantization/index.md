@@ -18,7 +18,7 @@ Quantization maps FP32/BF16 values to fewer bits (INT8/FP8/FP4), trading precisi
 **The bandwidth wall.** Attention decode is memory-bandwidth-bound: the bottleneck is reading the KV cache from HBM. Recall the KV cache formula from earlier in this series:
 
 $$
-\text{KV cache} = 2 \times L \times H \times d_k \times s \times B \times \text{sizeof(dtype)}
+\text{KV cache} = 2 \times L \times H \times d_k \times n \times B \times \text{sizeof(dtype)}
 $$
 
 Halving $\text{sizeof(dtype)}$ from 2 bytes (BF16) to 1 byte (FP8) nearly halves both the memory footprint and the bandwidth cost. This is the most direct lever for improving decode throughput — no architectural changes, no approximations to the attention pattern, just storing and moving fewer bytes per value.
@@ -39,7 +39,7 @@ Quantization's first decision is the **target format**. There are two families: 
 | INT8 | 8 | 1S + 7 magnitude | $[-128, 127]$ | 1 unit step | PTQ weight quant |
 | FP8 E4M3 | 8 | 1S + 4E + 3M | $\pm 448$ | ~1 decimal digit | Weights + activations |
 | FP8 E5M2 | 8 | 1S + 5E + 2M | $\pm 57344$ | coarser | Gradients |
-| NVFP4 (MX) | 4 | 1E + 2M + shared 8-bit scale | per-block | very coarse | Blackwell TC |
+| NVFP4 (MX) | 4 | 1S + 2E + 1M + shared 8-bit scale | per-block | very coarse | Blackwell TC |
 
 ### Integer vs floating-point
 
@@ -53,6 +53,8 @@ The 8-bit floating-point budget can be split two ways, and the choice matters:
 
 - **E4M3** — 4 exponent bits, 3 mantissa bits. Range $\pm 448$, with 15 distinct exponent values. The extra mantissa bit buys finer precision near zero, making E4M3 the preferred format for **weights and forward activations** where precision matters more than range.
 - **E5M2** — 5 exponent bits, 2 mantissa bits. Range $\pm 57344$, with 31 exponent values. The extra exponent bit doubles the dynamic range at the cost of precision — preferred for **gradients** during training, which can span many orders of magnitude.
+
+Both formats were standardized in NVIDIA's FP8 whitepaper [[6]](#ref-6).
 
 <!-- DIAGRAM: bit-layouts.svg — side-by-side bit field diagrams for FP32, BF16, FP8 E4M3, FP8 E5M2, NVFP4. Each shows sign/exponent/mantissa fields with bit counts labeled. -->
 
@@ -86,7 +88,7 @@ The stored 8 bits: `0 0100 100`. Still exact in this case — $0.1875$ is friend
 
 ### NVFP4 and microscaling (MX)
 
-At 4 bits you have only 16 representable values — far too few for any useful dynamic range on their own. The trick is **microscaling**: a block of $B$ values (typically $B = 32$) shares a single FP8 scale factor. Each individual value uses 4 bits (1 exponent + 2 mantissa), and the shared scale "shifts" the block's representable range to wherever it needs to be.
+At 4 bits you have only 16 representable values — far too few for any useful dynamic range on their own. The trick is **microscaling**: a block of $B$ values (typically $B = 16$ for NVFP4) shares a single FP8 scale factor. Each individual value uses 4 bits (1 sign + 2 exponent + 1 mantissa, the **E2M1** format), and the shared scale "shifts" the block's representable range to wherever it needs to be.
 
 The effective storage cost per value:
 
@@ -94,7 +96,7 @@ $$
 \text{effective bits} = 4 + \frac{8}{B}
 $$
 
-For $B = 32$, that's $4.25$ bits per value — close to the 4-bit ideal with only a small overhead for the shared scale.
+For $B = 16$, that's $4.5$ bits per value — close to the 4-bit ideal with only a small overhead for the shared scale. (The OCP MXFP4 specification uses $B = 32$ for $4.25$ effective bits; NVFP4 trades a slightly larger overhead for finer-grained scaling.)
 
 This design is formalized in the **OCP Microscaling (MX) specification** [[7]](#ref-7). NVIDIA's Blackwell Tensor Cores consume NVFP4 natively, meaning the dequantization from 4-bit block format to wider types happens inside the Tensor Core itself — no separate dequantize kernel needed. This is what enables FlashAttention v4's FP4 path to actually hit the hardware's peak throughput.
 
@@ -156,11 +158,11 @@ $$
 s_k = \frac{\max(|X_{kB:(k+1)B}|)}{q_{\max}}, \quad k = 0, 1, \ldots, \lceil d/B \rceil - 1
 $$
 
-This is the finest practical granularity — it approaches per-element accuracy at the cost of $\text{sizeof(scale)} / B$ overhead per value. This is exactly the MX/NVFP4 approach described in the Number Formats section above: $B = 32$, each shared scale is FP8 (8 bits), giving $8/32 = 0.25$ bits overhead per value. The total effective cost is $4.25$ bits per value rather than the raw 4 bits.
+This is the finest practical granularity — it approaches per-element accuracy at the cost of $\text{sizeof(scale)} / B$ overhead per value. This is exactly the MX/NVFP4 approach described in the Number Formats section above: $B = 16$ for NVFP4, each shared scale is FP8 (8 bits), giving $8/16 = 0.5$ bits overhead per value. The total effective cost is $4.5$ bits per value rather than the raw 4 bits.
 
 Per-group scaling is particularly valuable for FP4 quantization, where 4 bits alone provide only 16 representable values — the shared scale "shifts" each block to the right region of the number line, dramatically improving effective resolution.
 
-<!-- DIAGRAM: scaling-granularity.svg — a matrix with colored overlays showing: per-tensor (one color for whole matrix), per-channel (one color per row), per-token (one color per column), per-group (small blocks within the matrix). Each has its scale factor labeled. -->
+<!-- DIAGRAM: scaling-granularity.svg — a matrix with colored overlays showing: per-tensor (one color for whole matrix), per-channel (one color per column of the weight matrix, i.e., per output channel), per-token (one color per row of the activation matrix, i.e., per token), per-group (small blocks within each row). Each has its scale factor labeled. -->
 
 ### Why per-token × per-channel is the standard
 
@@ -186,7 +188,7 @@ PTQ quantizes a pre-trained model without retraining. You have the model weights
 The simplest approach: quantize each weight independently to the nearest representable value. Given a scale factor $s$ (determined by whichever scaling strategy you choose from the section above), each weight is mapped as:
 
 $$
-w_q = s \cdot \left\lfloor \frac{w}{s} \right\rceil
+\hat{w} = s \cdot \left\lfloor \frac{w}{s} \right\rceil
 $$
 
 where $\lfloor \cdot \rceil$ denotes rounding to the nearest integer. No calibration data needed, no inter-weight dependencies considered — just round and move on.
@@ -205,7 +207,7 @@ $$
 
 where $\mathbf{H}_F = 2 X X^\top$ is the Hessian of the reconstruction loss (computed from calibration data), and $[\mathbf{H}_F^{-1}]_{qq}$ is the diagonal element corresponding to the weight being quantized. Intuitively, the Hessian tells you how sensitive the output is to each weight — weights with high curvature need careful compensation, while low-curvature weights can absorb more adjustment.
 
-OBQ's problem is cost: it requires updating the Hessian inverse after every single weight, giving $O(d^3)$ complexity per weight. GPTQ's key innovation is processing weights in **column order** with a lazy batch update to the Hessian. Instead of recomputing the inverse after each weight, GPTQ quantizes an entire column, accumulates the compensation, and updates the Hessian once per column. This reduces the amortized cost to $O(d^2)$ per weight, making it practical for billion-parameter models. The result: accurate 4-bit weight quantization in minutes rather than hours. GPTQ is now one of the most widely used methods for producing INT4 weight-only models.
+OBQ's problem is cost: it requires updating the Hessian inverse after every single weight, giving $O(d^3)$ total complexity per layer. GPTQ's key innovation is processing weights in **column order** with a lazy batch update to the Hessian. Instead of recomputing the inverse after each weight, GPTQ quantizes an entire column, accumulates the compensation, and updates the Hessian once per column. This reduces the amortized cost to $O(d^2)$ per weight, making it practical for billion-parameter models. The result: accurate 4-bit weight quantization in minutes rather than hours. GPTQ is now one of the most widely used methods for producing INT4 weight-only models.
 
 ### AWQ (Activation-Aware Weight Quantization)
 
@@ -225,7 +227,7 @@ The scale factors are determined by activation magnitudes from the calibration s
 
 The methods above focus on **weight-only quantization**: weights are INT4/INT8 while activations remain in FP16 (a W4A16 or W8A16 scheme). This helps with memory bandwidth — fewer bytes to load — but the actual matrix multiply still uses FP16 arithmetic for the activations. To get the full speedup from INT8 Tensor Cores, you want **W8A8**: both weights *and* activations quantized to 8 bits.
 
-The problem is that activations are much harder to quantize than weights. Weights have well-behaved, roughly Gaussian distributions. Activations, especially in large language models, develop **outlier channels**: specific feature dimensions where values are 10--100$\times$ larger than the rest. These outliers appear at fixed channel positions across tokens and layers. A per-tensor or even per-token scale is dominated by these outliers, crushing the resolution for the 99% of channels that have normal magnitudes.
+The problem is that activations are much harder to quantize than weights. Weights have well-behaved, roughly Gaussian distributions. Activations, especially in large language models, develop **outlier channels** [[1]](#ref-1): specific feature dimensions where values are 10--100$\times$ larger than the rest. These outliers appear at fixed channel positions across tokens and layers. A per-tensor or even per-token scale is dominated by these outliers, crushing the resolution for the 99% of channels that have normal magnitudes.
 
 **SmoothQuant** [[4]](#ref-4) solves this with a mathematical trick: migrate the quantization difficulty from activations to weights. For a linear layer $Y = X W^\top$, insert a diagonal scaling matrix:
 
@@ -288,7 +290,7 @@ When training in reduced precision, small gradient values can **underflow** — 
 **Static loss scaling** is the simplest fix: multiply the loss by a large constant (e.g., 1024) *before* the backward pass. By the chain rule, every gradient in the network is scaled by the same factor, shifting the entire gradient distribution into the representable range. After the backward pass, divide all gradients by the same constant before the optimizer step:
 
 $$
-\mathcal{L}_{\text{scaled}} = s \cdot \mathcal{L}, \quad \nabla w = \frac{1}{s} \cdot \frac{\partial \mathcal{L}_{\text{scaled}}}{\partial w}
+\mathcal{L}_{\text{scaled}} = \lambda \cdot \mathcal{L}, \quad \nabla w = \frac{1}{\lambda} \cdot \frac{\partial \mathcal{L}_{\text{scaled}}}{\partial w}
 $$
 
 The problem: if the scale is too large, gradients *overflow* (become Inf/NaN). If too small, they still underflow. A fixed constant can't adapt to the gradient distribution as it evolves during training.
@@ -386,7 +388,7 @@ The error characteristics differ from the GEMM quantization points above:
 - **Per-channel or per-head scaling** is typical. Since each head has a consistent value distribution across positions, a single scale per head works well.
 - **Aggregate effect at long sequences**: across $s$ cached tokens, the per-token quantization errors form a distribution. No individual error is catastrophic, but the aggregate effect matters — when the model attends over thousands of tokens, the errors across all cached K vectors combine in the $QK^\top$ dot products. At very long sequences, this aggregate noise can shift the attention distribution enough to matter.
 
-For a deeper treatment of KV cache compression strategies — including mixed-precision caching, adaptive bit-width, and token eviction — see [post 18]({{< relref "18-kv-cache-compression" >}}).
+Methods like KIVI [[11]](#ref-11) and KVQuant [[12]](#ref-12) explore aggressive KV cache quantization (down to 2-bit keys with higher-precision values). For a deeper treatment of KV cache compression strategies — including mixed-precision caching, adaptive bit-width, and token eviction — see [post 18]({{< relref "18-kv-cache-compression" >}}).
 
 ### Sensitivity summary
 
