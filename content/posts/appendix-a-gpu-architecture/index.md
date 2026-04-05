@@ -41,13 +41,32 @@ Understanding attention kernels requires understanding the hardware they run on.
 
 ## Tensor Cores
 
-<!-- TODO:
-- Matrix multiply-accumulate units
-- Ampere: FP16/BF16/TF32/INT8, wmma instructions
-- Hopper: + FP8, WGMMA (warp-group level)
-- Blackwell: + FP4, UMMA/tcgen05 (single-thread launch, async, accumulate to TMEM)
-- Throughput scaling: ~312 TFLOPS (A100 FP16) → ~990 (H100) → ~2250 (B200)
--->
+**Tensor Cores** are fixed-function matrix multiply-accumulate (MMA) units inside each SM. They operate on small matrix tiles (e.g., $16 \times 16$) and compute $D = A \times B + C$ in a single operation, delivering far higher throughput than scalar CUDA cores for matrix workloads. Every GEMM in a transformer — projections, attention scores, FFN layers — runs on Tensor Cores.
+
+### Throughput by precision
+
+Each GPU generation added lower-precision datapaths, roughly doubling peak throughput at each step:
+
+| Precision | A100 (Ampere) | H100 (Hopper) | B200 (Blackwell) |
+|---|---|---|---|
+| FP64 | ~19.5 TFLOPS | ~34 TFLOPS | ~45 TFLOPS |
+| TF32 | ~156 TFLOPS | ~495 TFLOPS | ~1125 TFLOPS |
+| FP16 / BF16 | ~312 TFLOPS | ~990 TFLOPS | ~2250 TFLOPS |
+| FP8 | — | ~1979 TFLOPS | ~4500 TFLOPS |
+| FP4 | — | — | ~9000 TFLOPS |
+| INT8 | ~624 TOPS | ~1979 TOPS | ~4500 TOPS |
+
+*Note: values are approximate peak dense (non-sparsity). Actual throughput depends on tile utilization, memory-boundedness, and kernel efficiency.*
+
+### Accumulator precision
+
+All reduced-precision Tensor Core paths (FP16, BF16, FP8, FP4, INT8) accumulate partial products into an **FP32 accumulator**. The operands may be low-precision, but the running sum is kept at full precision. This is why FP8 GEMMs can match BF16 quality — individual multiply errors stay small and the FP32 accumulation prevents them from compounding. See [Appendix C]({{< relref "appendix-c-quantization" >}}) for a detailed walkthrough of the quantized GEMM dataflow.
+
+### Evolution of the MMA interface
+
+- **Ampere (SM 80):** introduced `wmma` (warp-level matrix multiply-accumulate) instructions. A single warp (32 threads) cooperatively loads a tile from registers and executes the MMA. Supported formats: FP16, BF16, TF32, INT8.
+- **Hopper (SM 90):** introduced **WGMMA** (warp-group MMA). A **warp group** (4 warps, 128 threads) issues a single MMA instruction, operating on larger tiles and feeding **FP8 operands directly from shared memory** — no register staging needed. This reduces register pressure and instruction overhead, enabling higher sustained throughput. WGMMA is the instruction that FlashAttention v3 targets for its FP8 attention path.
+- **Blackwell (SM 100):** introduced **UMMA** (unified MMA) via the `tcgen05` instruction family. UMMA can be launched by a **single thread**, is fully asynchronous, and supports **FP4 operands**. Results accumulate into **TMEM** (Tensor Memory), a dedicated 256 KB per-SM scratchpad for accumulator state — freeing registers and shared memory for other use. UMMA with TMEM is what enables FlashAttention v4's FP4 path and the ping-pong scheduling pattern on Blackwell.
 
 ## Data Movement
 

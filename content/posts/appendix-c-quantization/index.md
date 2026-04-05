@@ -299,7 +299,36 @@ For FP8 training, loss scaling is less critical than it was for FP16. **E5M2** (
 
 ## Hardware Support
 
-<!-- Section content: Task 6 -->
+The number format you quantize to must match what the hardware's fast path can consume. Each NVIDIA GPU generation added Tensor Core support for a lower-precision datapath — and the throughput gains are substantial. See [Appendix A]({{< relref "appendix-a-gpu-architecture" >}}) for the full GPU architecture story; here we focus on what matters for quantized computation.
+
+| Generation | GPU | Quantized formats | Approx. peak TFLOPS |
+|---|---|---|---|
+| Ampere (SM 80) | A100 | FP16, BF16, TF32, INT8 | ~312 (FP16) |
+| Hopper (SM 90) | H100 | + FP8 (E4M3, E5M2) | ~990 (FP16), ~1979 (FP8) |
+| Blackwell (SM 100) | B200 | + FP4 (NVFP4/MX) | ~2250 (FP16), ~4500 (FP8), ~9000 (FP4) |
+
+*Note: TFLOPS are approximate peak dense. Real workloads achieve a fraction depending on memory-boundedness and kernel efficiency.*
+
+### Tensor Core GEMM dataflow
+
+Key insight: **quantized operands ≠ quantized arithmetic.**
+
+The Tensor Core pipeline processes a GEMM in four stages, and understanding the precision at each stage is critical:
+
+1. **Load**: operands read from memory in reduced precision (FP8, FP4) — this is where bandwidth savings come from.
+2. **Multiply**: element-wise products computed at operand precision (or a slightly wider intermediate format).
+3. **Accumulate**: partial products summed in an **FP32 accumulator** — this prevents rounding error from compounding across the dot product.
+4. **Store**: the FP32 result is either kept at full precision or re-quantized back to a reduced format for the next operation.
+
+<!-- DIAGRAM: gemm-dataflow.svg — pipeline diagram. Two input arrows labeled "FP8 A" and "FP8 B" feed into a "Multiply (FP8)" box, which feeds into an "Accumulate (FP32)" box with feedback loop, which outputs to "FP32 result" with optional branch to "re-quantize → FP8". The FP32 accumulator box is highlighted. -->
+
+Practical implications:
+
+- **FP32 accumulator is why FP8 GEMMs match BF16 quality** — individual multiply errors don't snowball. Each FP8 product has small rounding error, but the FP32 accumulator sums thousands of these without additional precision loss.
+- **FP4 still accumulates in FP32**, but coarser operands mean more per-element error — this is why FP4 needs finer-grained scaling (per-group/MX) to maintain acceptable output quality.
+- **The re-quantize decision between GEMMs**: keep FP32 (accurate, but $4\times$ the memory) or re-quantize to FP8 (compact, but adds error at every stage boundary). In attention kernels, this decision happens per-tile in SRAM — this is the bridge to the kernel fusion section below, where we'll see how FlashAttention folds the re-quantize step into the attention loop to avoid extra memory round-trips.
+
+For details on the Tensor Core microarchitecture — including WGMMA (Hopper's warp-group level MMA), UMMA (Blackwell's single-thread launch), and TMEM (Blackwell's accumulator memory) — see [Appendix A]({{< relref "appendix-a-gpu-architecture" >}}).
 
 ## Where Quantization Hits Attention
 
