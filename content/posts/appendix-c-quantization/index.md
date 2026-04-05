@@ -490,7 +490,34 @@ DeepSeek-V3.2's NSA/DSA indexer ([post 07]({{< relref "07-sparse-attention" >}})
 
 ## Quantization in FFN / MoE
 
-<!-- Section content: Task 10 -->
+Attention gets the nuanced quantization story, but the FFN layers are where quantization delivers the most straightforward wins — large weight matrices, standard GEMM patterns, no softmax to worry about.
+
+### FFN weight quantization
+
+Typical SwiGLU FFN has three weight matrices per layer: $W_{\text{gate}}$, $W_{\text{up}} \in \mathbb{R}^{d \times d_{\text{ff}}}$ and $W_{\text{down}} \in \mathbb{R}^{d_{\text{ff}} \times d}$. For $d = 7168$, $d_{\text{ff}} = 18432$ (DeepSeek-V3 dense dimensions): each FFN layer stores $3 \times 7168 \times 18432 = 396\text{M}$ parameters.
+
+The memory arithmetic is simple:
+
+- In **BF16**: ~792 MB per layer
+- In **FP8**: ~396 MB per layer
+- In **FP4**: ~198 MB per layer
+
+No softmax sensitivity, no cache accumulation — **activation quantization is simpler than in attention**. The FFN path is a sequence of GEMMs with element-wise nonlinearities in between, which is exactly what quantized matmul kernels are optimized for.
+
+### MoE: the quantization multiplier
+
+MoE models ([post 05]({{< relref "05-moe" >}})) have $N$ expert FFNs (e.g., 256 in DeepSeek-V3), but only $k$ are active per token. Total expert parameters: $N \times 3 \times d \times d_{\text{ff}}^{\text{expert}}$. For DeepSeek-V3: $256 \times 3 \times 7168 \times 2048 \approx 11.3$ GB per MoE layer in BF16.
+
+- **Memory savings scale with $N$**: quantizing BF16 to FP8 saves ~5.6 GB *per MoE layer*
+- **Compute savings scale with $k$**: only $k$ experts run per token, so throughput gain applies to $k$ GEMMs, not $N$. But at memory level, all $N$ experts must be resident.
+
+This asymmetry makes quantization especially valuable for MoE — the memory cost is dominated by the full expert count $N$, while compute cost depends only on the active count $k$. Quantization attacks the bigger problem.
+
+### DeepSeek-V3 FP8 MoE training
+
+DeepSeek-V3 [[8]](#ref-8) trained all 256 experts in FP8 from the start (quantization-aware training). Per-tile scaling (128$\times$128 tiles) for expert GEMMs keeps outlier impact local — each tile gets its own scale factor, preventing a single outlier from crushing the dynamic range of a large block.
+
+**Gate precision**: the routing gate stays in BF16/FP32. Small errors in gate logits can flip top-$k$ selection, sending a token to entirely different experts — a catastrophic error that doesn't heal. The gate GEMM is small ($d \times N$), so high precision costs negligible throughput.
 
 ## Trade-offs
 
