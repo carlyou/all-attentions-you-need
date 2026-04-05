@@ -175,7 +175,7 @@ $$
 Y_{i,j} = s_i^X \cdot s_j^W \cdot (X_q \cdot W_q^\top)_{i,j}
 $$
 
-The scale matrix $s_i^X \cdot s_j^W$ is an outer product of two vectors — $n$ token scales and $d_{\text{out}}$ channel scales — which can be applied as a cheap post-processing step after the integer/FP8 GEMM finishes. No per-element scale lookups inside the inner loop, no complex indexing. This is why FP8 GEMM libraries (cuBLAS, CUTLASS) default to the per-token $\times$ per-channel configuration, and why the FP8 attention kernels in FlashAttention v3 [[4]](#ref-4) adopt the same pattern for the $QK^\top$ and $\text{score} \times V$ GEMMs.
+The scale matrix $s_i^X \cdot s_j^W$ is an outer product of two vectors — $n$ token scales and $d_{\text{out}}$ channel scales — which can be applied as a cheap post-processing step after the integer/FP8 GEMM finishes. No per-element scale lookups inside the inner loop, no complex indexing. This is why FP8 GEMM libraries (cuBLAS, CUTLASS) default to the per-token $\times$ per-channel configuration, and why the FP8 attention kernels in FlashAttention v3 [[9]](#ref-9) adopt the same pattern for the $QK^\top$ and $\text{score} \times V$ GEMMs.
 
 ## Post-Training Quantization (PTQ)
 
