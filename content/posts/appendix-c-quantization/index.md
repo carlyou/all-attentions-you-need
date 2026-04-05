@@ -401,7 +401,70 @@ For a deeper treatment of KV cache compression strategies — including mixed-pr
 
 ## Kernel Fusion
 
-<!-- Section content: Task 8 -->
+Having the right number format and scaling strategy is necessary but not sufficient. If each quantize/dequantize step is a separate CUDA kernel launch — reading from HBM, processing, writing back to HBM — the memory round-trips can erase the throughput gains. **Kernel fusion** folds the quantization operations into the attention kernel itself, keeping intermediate values in SRAM.
+
+### The unfused baseline
+
+A naively quantized attention layer launches a separate kernel for every operation:
+
+```text
+1. Launch: QKV projection (FP8 GEMM) → write Q, K, V to HBM in FP8
+2. Launch: dequant Q, K to FP32 → write to HBM
+3. Launch: QK^T GEMM (FP32) → write scores to HBM
+4. Launch: softmax → write attention weights to HBM
+5. Launch: quant attention weights to FP8 → write to HBM
+6. Launch: score * V GEMM (FP8) → write output to HBM
+```
+
+Each arrow is an HBM round-trip at ~2--3 TB/s bandwidth. For sequence length $n = 4096$ with $d_k = 128$, the score matrix alone is $4096 \times 4096 \times 4\text{ bytes} = 64\text{ MB}$ — written and read multiple times across these kernel boundaries. The kernel launch overhead compounds: six launches means six synchronization barriers and six read-write cycles for data that could have stayed on-chip.
+
+### The fused approach
+
+Fused attention keeps the entire pipeline in SRAM:
+
+```text
+1. Launch: QKV projection (FP8 GEMM) → Q, K, V in HBM (FP8)
+2. Launch: fused attention kernel
+   - Load Q tile, K tile from HBM (FP8)
+   - QK^T in FP8, accumulate in FP32 (in registers)
+   - Online softmax in FP32 (in registers)
+   - Score * V in FP8, accumulate in FP32 (in registers)
+   - Write final output to HBM
+```
+
+The intermediate score matrix never materializes in HBM. Two kernel launches instead of six. The quantize/dequantize operations between GEMMs happen in registers — effectively free compared to HBM traffic. This is the same tiling strategy that makes FlashAttention work, extended to FP8 operands.
+
+### FlashAttention v3 (Hopper, FP8)
+
+FlashAttention v3 [[9]](#ref-9) targets Hopper's FP8 Tensor Cores via the **WGMMA** (Warpgroup Matrix Multiply-Accumulate) instruction:
+
+- Both the $QK^\top$ and $\text{score} \times V$ GEMMs use **FP8 E4M3** operands with **FP32 accumulation**. The Tensor Core performs FP8 multiply, then adds into an FP32 accumulator register — full precision where it matters.
+- **Online softmax stays in FP32** — no quantization on the softmax itself. Softmax is the most precision-sensitive operation in attention (exponentials amplify rounding errors), so keeping it in full precision is critical.
+- Quant/dequant for intermediates happens in registers with zero HBM traffic. The FP8 values are loaded from HBM once and consumed immediately by the Tensor Core.
+- **Per-token scaling** is folded into the tile loading step: each tile's scale factor is applied during the register-level dequantization before the GEMM, adding negligible overhead.
+
+For the full treatment of FA v3's tiling and pipelining strategy, see [FlashAttention v3/v4]({{< relref "10-flash-attention-v3-v4" >}}).
+
+### FlashAttention v4 (Blackwell, FP4)
+
+FlashAttention v4 [[10]](#ref-10) pushes fusion one generation further, targeting Blackwell's FP4 Tensor Cores via the **UMMA** (Unified Matrix Multiply-Accumulate) instruction:
+
+- **NVFP4 operands** with MX block scaling: each 32-element block carries its own FP8 scale factor. This is the microscaling approach from the number formats section, now inside the attention kernel.
+- The kernel manages **block scale bookkeeping** within each tile — loading the per-block scales alongside the FP4 data and applying them during the register-level dequant step.
+- **FP32 accumulation and online softmax** are unchanged from FA v3. The precision-sensitive parts of the computation remain in full precision regardless of how aggressively the operands are quantized.
+- Halving the operand width from FP8 to FP4 doubles the effective Tensor Core throughput and halves the HBM bandwidth required per tile load.
+
+For architecture details and performance comparisons, see [FlashAttention v3/v4]({{< relref "10-flash-attention-v3-v4" >}}).
+
+### KV cache dequant fusion
+
+In serving frameworks (vLLM, TensorRT-LLM), the KV cache is often stored in FP8 to fit longer contexts in GPU memory. The fusion opportunity here mirrors the attention kernel case:
+
+- **Without fusion:** a separate dequant kernel reads FP8 values from paged KV blocks, writes FP32/BF16 to a staging buffer in HBM, then the attention kernel reads from that buffer. This is two full HBM traversals of the KV data.
+- **With fusion:** the attention kernel reads FP8 directly from the paged blocks and dequantizes in-register during tile computation. The FP8-to-FP32 conversion happens in the same instruction stream as the GEMM.
+- This eliminates **one full HBM read-write cycle per attention layer per decode step** — a significant saving when decode is already memory-bandwidth-bound and the model has dozens of layers.
+
+<!-- DIAGRAM: fused-vs-unfused.svg — two-column comparison. Left: "Unfused" showing 6 kernel boxes with HBM arrows between each. Right: "Fused" showing 2 kernel boxes (QKV projection, fused attention) with only input/output HBM arrows. Eliminated HBM traffic is crossed out or grayed. -->
 
 ## Quantization in MLA Paths
 
