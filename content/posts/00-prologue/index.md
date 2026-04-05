@@ -67,7 +67,7 @@ the same structure, so you can compare them directly.
 ### Part 5: Parallelism Done Right
 
 - [**Tensor & Pipeline Parallelism**]({{< relref "11-tensor-pipeline-parallelism" >}})
-    - splitting heads and weight matrices across GPUs, column/row parallel linear layers, all-reduce patterns
+    - splitting heads and weight matrices across GPUs, column/row parallel linear layers, all-reduce patterns, Megatron-LM sequence parallelism, interleaved pipeline schedules (1F1B, zero-bubble)
 - [**Expert Parallelism & MoE at Scale**]({{< relref "12-expert-parallelism" >}})
     - distributing experts across GPUs, all-to-all communication, load balancing
 - [**Context & Ring Parallelism**]({{< relref "13-context-ring-parallelism" >}})
@@ -78,17 +78,19 @@ the same structure, so you can compare them directly.
 - [**Attention in Training**]({{< relref "14-attention-in-training" >}})
     - memory profile (activations vs weights), gradient checkpointing, mixed precision, backward pass through FlashAttention
 - [**Distributed Training (ZeRO & FSDP)**]({{< relref "15-distributed-training" >}})
-    - ZeRO stages 1/2/3, FSDP as PyTorch-native ZeRO-3, how attention layers are sharded during training
+    - ZeRO stages 1/2/3, FSDP as PyTorch-native ZeRO-3, how attention layers are sharded during training, 3D parallelism composition (TP + PP + DP)
 
 ### Part 7: Serving Infrastructure
 
 - [**Paged Attention & KV Cache Management**]({{< relref "16-paged-attention" >}})
-    - virtual memory for KV cache: block allocation, block tables, the scheduler as sole owner of GPU memory
+    - virtual memory for KV cache: block allocation, block tables, the scheduler as sole owner of GPU memory, prefix caching for shared prompts
 - [**Batching & Scheduling**]({{< relref "17-batching-scheduling" >}})
     - continuous batching, mixed prefill-decode, chunked prefill, ragged batching, and the CPU-GPU scheduling loop
-- [**Speculative Decoding**]({{< relref "18-speculative-decoding" >}})
-    - draft-then-verify for multi-token generation, rejection sampling, and variants: Medusa, EAGLE, layer-skipping, n-gram
-- [**Attention Backends**]({{< relref "19-attention-backends" >}})
+- [**KV Cache Compression**]({{< relref "18-kv-cache-compression" >}})
+    - token eviction (H2O, ScissorHands), quantized KV cache (KIVI, KV-Quant), token merging, and attention sinks
+- [**Speculative Decoding**]({{< relref "19-speculative-decoding" >}})
+    - draft-then-verify for multi-token generation, rejection sampling, and variants: Medusa, EAGLE, layer-skipping, n-gram, multi-token prediction
+- [**Attention Backends**]({{< relref "20-attention-backends" >}})
     - FlashAttention, FlashInfer, FlashMLA, CUTLASS, Triton, cuDNN — how vLLM selects and dispatches to the right kernel
 
 ### Appendices
