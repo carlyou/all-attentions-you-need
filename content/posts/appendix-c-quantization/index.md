@@ -521,12 +521,56 @@ DeepSeek-V3 [[8]](#ref-8) trained all 256 experts in FP8 from the start (quantiz
 
 ## Trade-offs
 
-<!-- Section content: Task 11 -->
+| Method | Bits | Quality impact | Throughput gain | Complexity | When to use |
+|---|---|---|---|---|---|
+| BF16 (baseline) | 16 | None | 1× | None | Training, quality-critical serving |
+| INT8 PTQ (GPTQ/AWQ) | 8 | Minimal | ~1.5-2× | Offline calibration | Weight-dominated serving |
+| SmoothQuant (W8A8) | 8 | Minimal | ~1.5-2× | Calibration + smoothing | Activation-bottlenecked serving |
+| FP8 PTQ | 8 | Minimal | ~2× | Scale calibration | Hopper+ serving |
+| FP8 QAT | 8 | Near-zero | ~2× | Training recipe | Frontier model training |
+| FP4 / NVFP4 | 4 | Small-moderate | ~4× | Block scaling (MX) | Blackwell, throughput-critical |
+| INT4 PTQ (GPTQ/AWQ) | 4 | Moderate | ~2-3× | Careful calibration | Memory-constrained deployment |
+
+**Precision vs throughput.** The jump from 16-bit to 8-bit is nearly free in terms of quality — modern calibration techniques keep perplexity degradation within noise for most models. The jump from 8-bit to 4-bit is a different story: you're cutting representable values from 256 to 16, and even with microscaling the precision loss is measurable. The gap between 8-bit and 4-bit quality impact is much larger than the gap between 16-bit and 8-bit, which means the decision to go sub-8-bit should always be driven by a concrete throughput or memory constraint, not just "lower is better."
+
+**Static vs dynamic quantization.** Static scales (computed once during calibration, fixed at inference) are fast — no per-token overhead. But they miss outliers that weren't present in the calibration set, and they can't adapt to distribution shifts across different inputs. Dynamic quantization (computing scales per-token or per-block at runtime) adds overhead but handles the full range of real inputs. FP8 per-token dynamic quantization hits the sweet spot: the scale computation is a single reduction per token, which is negligible relative to the GEMM it feeds. This is why FP8 dynamic quantization has become the default for Hopper deployments.
+
+**Where error compounds.** Not all quantization targets are equally sensitive. Weights are the most forgiving — they're the same values every forward pass, so calibration has full opportunity to minimize error. Activations are harder because they vary per input, making static calibration a compromise. The KV cache is hardest of all: quantized key and value vectors persist for the full sequence length, and attention aggregates across thousands of cached positions. A rounding error introduced at position 0 still affects generation at position 10,000. In practice, this means you can afford coarser quantization for weights (INT4 is viable) than for the KV cache (FP8 or careful INT4 with per-channel scaling).
+
+**Fusion or it doesn't count.** Throughput gains from quantization assume fused kernels — quantize/dequantize steps folded into the GEMM or attention kernel so there are no extra memory round-trips. Unfused FP8 attention that launches separate dequant and quant kernels can actually be *slower* than BF16 FlashAttention, because the extra kernel launches and memory traffic outweigh the faster arithmetic. This is why kernel maturity is the practical bottleneck for quantization adoption: the format is useless until someone writes a fused kernel that exploits it. FlashAttention v3's FP8 path and TensorRT-LLM's fused FP8 attention were the inflection points that made FP8 attention practical, not the Hopper hardware itself.
 
 ## Adoption
 
-<!-- Section content: Task 11 -->
+- **Llama 3 / 3.1** (Meta, 2024): official INT8 and FP8 quantized checkpoints. Trained in BF16, PTQ for inference.
+- **DeepSeek-V3** (DeepSeek, 2024): first major model trained end-to-end in FP8 (QAT). Per-tile scaling across all 256 MoE experts.
+- **Mistral / Mixtral** (Mistral AI, 2023-2024): community GPTQ and AWQ INT4 quantizations widely used for local serving on consumer GPUs.
+- **vLLM / TensorRT-LLM** (2024-2025): FP8 KV cache support, fused FP8 attention kernels for Hopper+. FP4 support in development.
+- **Blackwell (B200)** (NVIDIA, 2025): FP4 Tensor Cores shipping. FlashAttention v4 first attention kernel targeting native FP4. Adoption still early as of early 2026.
 
 ## References
+
+<span id="ref-1">[1]</span> Dettmers, T., et al. (2022). [LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale](https://arxiv.org/abs/2208.07339). *NeurIPS 2022*.
+
+<span id="ref-2">[2]</span> Frantar, E., et al. (2022). [GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers](https://arxiv.org/abs/2210.17323). *ICLR 2023*.
+
+<span id="ref-3">[3]</span> Lin, J., et al. (2023). [AWQ: Activation-Aware Weight Quantization for LLM Compression and Acceleration](https://arxiv.org/abs/2306.00978). *MLSys 2024*.
+
+<span id="ref-4">[4]</span> Xiao, G., et al. (2023). [SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models](https://arxiv.org/abs/2211.10438). *ICML 2023*.
+
+<span id="ref-5">[5]</span> Micikevicius, P., et al. (2018). [Mixed Precision Training](https://arxiv.org/abs/1710.03740). *ICLR 2018*.
+
+<span id="ref-6">[6]</span> NVIDIA. (2022). [FP8 Formats for Deep Learning](https://arxiv.org/abs/2209.05433). *arXiv preprint*.
+
+<span id="ref-7">[7]</span> OCP. (2023). [Open Compute Project Microscaling Formats (MX) Specification](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf). *OCP*.
+
+<span id="ref-8">[8]</span> DeepSeek-AI. (2024). [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437). *arXiv preprint*.
+
+<span id="ref-9">[9]</span> Shah, J., et al. (2024). [FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision](https://arxiv.org/abs/2407.08691). *arXiv preprint*.
+
+<span id="ref-10">[10]</span> Shah, J., et al. (2025). FlashAttention-4: Hardware-Friendly Attention on Blackwell.
+
+<span id="ref-11">[11]</span> Liu, Z., et al. (2024). [KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache](https://arxiv.org/abs/2402.02750). *arXiv preprint*.
+
+<span id="ref-12">[12]</span> Hooper, C., et al. (2024). [KVQuant: Towards 10 Million Context Length LLM Inference with KV Cache Quantization](https://arxiv.org/abs/2401.18079). *arXiv preprint*.
 
 *Last updated: April 2026*
