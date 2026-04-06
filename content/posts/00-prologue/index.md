@@ -66,8 +66,8 @@ the same structure, so you can compare them directly.
 
 ### Part 5: Parallelism Done Right
 
-- [**Tensor & Pipeline Parallelism**]({{< relref "11-tensor-pipeline-parallelism" >}})
-    - splitting heads and weight matrices across GPUs, column/row parallel linear layers, all-reduce patterns, Megatron-LM sequence parallelism, interleaved pipeline schedules (1F1B, zero-bubble)
+- [**Parallelism Strategies**]({{< relref "11-parallelism-strategies" >}})
+    - data, tensor, sequence, and pipeline parallelism — column/row parallel linear layers, all-reduce patterns, Megatron-LM sequence parallelism, pipeline schedules (1F1B, interleaved, zero-bubble), 3D parallelism
 - [**Expert Parallelism & MoE at Scale**]({{< relref "12-expert-parallelism" >}})
     - distributing experts across GPUs, all-to-all communication, load balancing
 - [**Context & Ring Parallelism**]({{< relref "13-context-ring-parallelism" >}})
